@@ -25,7 +25,7 @@ import ResilientImg from './ResilientImg'
 import { ASSETS } from '../assets'
 import { StrategyTester } from './EaScreens'
 import {
-  cabinets as cabinetList, elapsed, reportLines, riskByWorker, riskCaption, stationHeadline, stationLights, useEa,
+  cabinets as cabinetList, elapsed, money, queueLines, reportLines, riskByWorker, riskCaption, stationHeadline, stationLights, useEa,
   type EaStation, type Lights,
 } from '../eaScenes'
 import type { Agent } from '../types'
@@ -111,7 +111,17 @@ const ICON = { ok: '/sprites/trading/ea/compile-ok.png', error: '/sprites/tradin
 function StationCard({ s }: { s: EaStation }) {
   const running = s.status === 'running' || s.status === 'compiling' || s.status === 'awaiting-report'
   useSecondTick(running)
-  if (s.status === 'idle') return null
+  const queue = queueLines(s.queue)
+  if (s.status === 'idle') {
+    // Nothing of a session's own on the station, but the Workbench queue has runs waiting: say so, quietly
+    if (!s.queue || !s.queue.queued) return null
+    return (
+      <div className="ea-card ea-card-off" title={queue.join('\n')} data-testid="ea-station-card" data-status="idle" data-source="workbench">
+        <div className="ea-card-head"><span className="ea-card-title">EA Workbench: idle</span></div>
+        <div className="ea-card-queue">{queue.map(l => <div key={l}>{l}</div>)}</div>
+      </div>
+    )
+  }
   const lines = s.status === 'done' ? reportLines(s.report) : null
   const lights = stationLights(s)
   const icon = lights === 'green' ? ICON.ok : lights === 'red' ? ICON.error : null
@@ -123,9 +133,11 @@ function StationCard({ s }: { s: EaStation }) {
     s.report?.path ?? s.report?.name ?? null,
     s.note ?? null,
     s.error ? `error: ${s.error}` : null,
+    ...(queue.length ? ['EA Workbench queue:', ...queue] : []),
+    s.queue?.latest?.report ? `last result ${s.queue.latest.test}${s.queue.latest.lastCase ? ` (${s.queue.latest.lastCase})` : ''}: net ${money(s.queue.latest.report.netProfit)}, ${s.queue.latest.report.trades ?? '—'} trades` : null,
   ].filter(Boolean).join('\n')
   return (
-    <div className={`ea-card ea-card-${lights}`} title={title} data-testid="ea-station-card" data-status={s.status}>
+    <div className={`ea-card ea-card-${lights}`} title={title} data-testid="ea-station-card" data-status={s.status} data-source={s.source ?? 'session'}>
       <div className="ea-card-head">
         {icon && <img src={icon} alt="" className="ea-card-icon" draggable={false} />}
         <span className="ea-card-title">{stationHeadline(s)}</span>
@@ -143,6 +155,7 @@ function StationCard({ s }: { s: EaStation }) {
         <div className="ea-card-note">{s.compile?.errors ?? '?'} errors, {s.compile?.warnings ?? '?'} warnings</div>
       ) : null}
       {s.status === 'compile-unknown' && <div className="ea-card-note">{s.note}</div>}
+      {s.source === 'workbench' && queue.length > 0 && <div className="ea-card-queue">{queue.slice(0, 3).map(l => <div key={l}>{l}</div>)}</div>}
     </div>
   )
 }

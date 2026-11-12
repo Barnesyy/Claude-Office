@@ -411,6 +411,8 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
   function noteBroadcast(p) {
     if (!p || typeof p.type !== 'string' || p.type.startsWith('progression_')) return
     if (!enabled()) return
+    // History the watcher read at start-up: it happened before the office was watching, so it earns nothing
+    if (p.replayed === true) return
     switch (p.type) {
       case 'session_turn_end': {
         if (!p.sessionId) return

@@ -15,7 +15,7 @@ import WallBoard from '../src/components/WallBoard'
 import CommandCentre from '../src/components/CommandCentre'
 import {
   EA_EMPTY, cabinets, centreCards, centreColumn, cleanEa, curvePath, dispatchEa, eaScreenPairs, getEa, money, reportLines,
-  resetEa, riskByWorker, stationHeadline, stationLights, wallMode, wallModesWithContent, type EaState,
+  resetEa, riskByWorker, equityCaption, queueLines, stationHeadline, stationLights, wallMode, wallModesWithContent, type EaState,
 } from '../src/eaScenes'
 import { deskScreens } from '../src/screens'
 import type { Agent, SessionInfo } from '../src/types'
@@ -161,6 +161,31 @@ describe('whiteboard modes', () => {
   })
 })
 
+describe('equity caption, picker and queue lines', () => {
+  it('captions a curve with EA, symbol, timeframe and dates; lists the queue', () => {
+    expect(equityCaption({ expert: 'BrooksSetupTesterDAX_v024', name: 'x.htm', symbol: 'DAX40', period: 'M5 (2013.01.01 - 2013.12.31)', timeframe: 'M5', from: '2013.01.01', to: '2013.12.31' }))
+      .toBe('BrooksSetupTesterDAX_v024 · DAX40 · M5 · 2013.01.01–2013.12.31')
+    expect(queueLines({ armed: true, queued: 2, running: [{ id: 'Q', test: 'R1781', install: 'BlackBull tester', completed: 0, planned: 4, run: 'GO139B1_FRAC' }],
+      installs: [{ name: 'BlackBull tester', running: 'R1781', queued: 2, held: null }], latest: null }))
+      .toEqual(['▶ BlackBull tester: R1781 0/4 · GO139B1_FRAC', '2 queued · BlackBull tester 2'])
+    expect(queueLines(null)).toEqual([])
+  })
+  it('the station card shows a Workbench run and its queue', () => {
+    dispatchEa({ type: 'ea_state', ea: { ...EA_EMPTY, station: { status: 'running', kind: 'backtest', source: 'workbench', label: 'Workbench R1781 on BlackBull tester · 0/4',
+      queue: { armed: true, queued: 1, running: [{ id: 'Q', test: 'R1781', install: 'BlackBull tester', completed: 0, planned: 4 }], installs: [{ name: 'BlackBull tester', running: 'R1781', queued: 1, held: null }], latest: null } } } })
+    const html = renderToStaticMarkup(createElement(EaScene, { agents: [] }))
+    expect(html).toContain('data-source="workbench"')
+    expect(html).toContain('Workbench R1781 on BlackBull tester')
+    expect(html).toContain('1 queued')
+  })
+  it('the wall shows its caption and AUTO / PINNED tag', () => {
+    dispatchEa({ type: 'ea_state', ea: { ...EA_EMPTY, equity: { ...REPORT, source: 'focus', pick: 'auto', focus: 'SchoolRun', timeframe: 'M15', from: '2019.01.02', to: '2023.12.29', points: [[0, 1], [1, 2]], dealCount: 2 } } })
+    const html = renderToStaticMarkup(createElement(WallBoard, { sessions: [], night: 0 }))
+    expect(html).toContain('2019.01.02–2023.12.29')
+    expect(html).toContain('AUTO · SchoolRun')
+  })
+})
+
 describe('Command Centre', () => {
   const s = (id: string, over: Partial<SessionInfo>): SessionInfo => ({ id, state: 'active', project: id, ...over })
   it('needs you, working, done, ended', () => {
@@ -175,6 +200,14 @@ describe('Command Centre', () => {
     expect(cols['needs-you'][0].line).toBe('permission: Bash')
     expect(cols.working[0]).toMatchObject({ line: 'running tests', workers: 1 })
     const html = renderToStaticMarkup(createElement(CommandCentre, { sessions: [s('c', { main: { state: 'working' } })], agents: [], onClose() {} }))
-    for (const t of ['Needs you', 'Working', 'Done', 'Ended']) expect(html).toContain(t)
+    for (const t of ['Needs you', 'Working', 'Done', 'Stale &gt;6h', 'Ended']) expect(html).toContain(t)
+  })
+  it('a terminal waiting for over 6 h goes to Stale, with its age', () => {
+    const now = Date.now()
+    const old = s('g', { hooked: false, registry: { pid: 2, status: 'waiting' }, main: { state: 'needs-you', needsYou: { kind: 'registry', summary: 'waiting in the terminal', since: now - 20 * 3600_000 } } })
+    expect(centreColumn(old, now)).toBe('stale')
+    expect(centreColumn({ ...old, main: { ...old.main!, needsYou: { ...old.main!.needsYou!, since: now - 60_000 } } }, now)).toBe('needs-you')
+    const cols = centreCards([old], [], now)
+    expect(cols.stale[0]).toMatchObject({ id: 'g', since: now - 20 * 3600_000 })
   })
 })

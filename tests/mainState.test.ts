@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
   mainId, isMainAgent, isHardNeedsYou, needsYouLabel, needsYouBadge, needsYouShort,
   agentStateFor, isFreeMain, mainTone, mainPillText, shortModel,
-  formatTokensShort, formatElapsed, completionStats, summarise, projectFromCwd, countRunningTasks, stripCounts,
+  formatTokensShort, formatElapsed, completionStats, summarise, projectFromCwd, countRunningTasks, stripCounts, isStaleNeedsYou, needsYouSince, formatAge,
 } from '../src/mainState'
 import type { MainState, NeedsYou, SessionInfo } from '../src/types'
 
@@ -130,9 +130,24 @@ describe('mainState helpers', () => {
     expect(counts.notHookedText).toBeNull()
   })
 
+  it('a hand up for over 6 h is stale: counted on its own, not in "need you"', () => {
+    const now = Date.parse('2026-11-12T17:00:00+11:00')
+    const counts = stripCounts([
+      session('fresh', { ...waitingOn({ kind: 'permission', toolName: 'Bash', since: now - 5 * 60_000 }) }),
+      session('old-reg', { hooked: false, ...waitingOn({ kind: 'registry', summary: 'waiting in the terminal', since: now - 23 * 3600_000 }) }),
+      session('old-perm', { ...waitingOn({ kind: 'permission', toolName: 'Edit' }), lastActivityAt: now - 7 * 3600_000 }),
+    ], now)
+    expect(counts.needYou.map(s => s.id)).toEqual(['fresh'])
+    expect(counts.stale.map(s => s.id)).toEqual(['old-reg', 'old-perm'])
+    expect([counts.needYouText, counts.staleText]).toEqual(['1 needs you', '2 stale (>6h)'])
+    expect(isStaleNeedsYou(counts.stale[0], now)).toBe(true)
+    expect(needsYouSince(counts.stale[0])).toBe(now - 23 * 3600_000)
+    expect([formatAge(45_000), formatAge(12 * 60_000), formatAge(23 * 3600_000), formatAge(50 * 3600_000)]).toEqual(['45s', '12m', '23h', '2d'])
+  })
+
   it('has no text for a zero count and a singular for one session', () => {
     expect(stripCounts([])).toEqual({
-      sessions: 0, notHooked: [], needYou: [], sessionsText: '0 sessions', notHookedText: null, needYouText: null,
+      sessions: 0, notHooked: [], needYou: [], sessionsText: '0 sessions', notHookedText: null, needYouText: null, stale: [], staleText: null,
     })
     const one = stripCounts([session('solo', { hooked: false })])
     expect([one.sessionsText, one.notHookedText, one.needYouText]).toEqual(['1 session', '1 not hooked', null])

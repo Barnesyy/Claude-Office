@@ -33,6 +33,7 @@
 import { readFileSync, readdirSync, statSync } from 'fs'
 import path from 'path'
 import { payloadTime } from './transcript-source.js'
+import { findWorkbench, readWorkbench as readWorkbenchFiles } from './ea-workbench.js'
 
 // ---------------------------------------------------------------------------
 // Configuration (office.config.json "ea" block, env overrides)
@@ -53,6 +54,12 @@ export const EA_DEFAULTS = Object.freeze({
   cabinetMinutes: 60,
   /** How often the reports folder is rescanned */
   rescanSeconds: 30,
+  /** The equity wall keeps a curve up at least this long before an automatic switch (a pick or a run you started switches at once) */
+  equityDwellMinutes: 10,
+  /** EA Workbench folder (its runqueue lights the station); null: %LOCALAPPDATA%\\EAWorkbench if it has one; false: off */
+  workbench: null,
+  /** How long the station shows the Workbench's last finished run once nothing runs */
+  workbenchRecentMinutes: 60,
 })
 
 /** The EA settings: office.config.json's `ea` block over the defaults; AGENT_OFFICE_EA_REPORTS_DIR wins. */
@@ -68,7 +75,11 @@ export function resolveEaConfig(officeConfig = {}, env = process.env) {
     riskMinutes: num(raw.riskMinutes, EA_DEFAULTS.riskMinutes),
     cabinetMinutes: num(raw.cabinetMinutes, EA_DEFAULTS.cabinetMinutes),
     rescanSeconds: num(raw.rescanSeconds, EA_DEFAULTS.rescanSeconds, 1),
+    equityDwellMinutes: num(raw.equityDwellMinutes, EA_DEFAULTS.equityDwellMinutes),
+    workbench: raw.workbench === false ? false : typeof raw.workbench === 'string' && raw.workbench ? raw.workbench : null,
+    workbenchRecentMinutes: num(raw.workbenchRecentMinutes, EA_DEFAULTS.workbenchRecentMinutes),
     appData: env.APPDATA || null,
+    localAppData: env.LOCALAPPDATA || null,
   }
 }
 
@@ -477,6 +488,68 @@ export function readReport(p) {
   return parsed ? { ...parsed, path: p, name: basenameAny(p), mtime: file.mtime } : null
 }
 
+/** path -> { mtime, report }: a 1.7 MB report is parsed once per write, not on every rescan */
+const reportCache = new Map()
+export function readReportCached(p) {
+  let mtime
+  try { mtime = statSync(p).mtimeMs } catch { return null }
+  const hit = reportCache.get(p)
+  if (hit && hit.mtime === mtime) return hit.report
+  const report = readReport(p)
+  reportCache.set(p, { mtime, report })
+  if (reportCache.size > 200) reportCache.delete(reportCache.keys().next().value)
+  return report
+}
+
+/** The newest tester reports in a folder (and one level of subfolders), newest first, up to `limit` readable ones. */
+export function recentReports(dir, { limit = 12, look = 40 } = {}) {
+  if (!dir) return []
+  const files = []
+  const walk = (d, depth) => {
+    let entries = []
+    try { entries = readdirSync(d, { withFileTypes: true }) } catch { return }
+    for (const e of entries) {
+      const p = joinAny(d, e.name)
+      if (e.isDirectory() && depth < 1) walk(p, depth + 1)
+      else if (e.isFile() && /\.(html?|xml)$/i.test(e.name)) { try { files.push({ p, mtime: statSync(p).mtimeMs }) } catch {} }
+    }
+  }
+  walk(dir, 0)
+  files.sort((a, b) => b.mtime - a.mtime)
+  const out = []
+  for (const f of files.slice(0, look)) {
+    const r = readReportCached(f.p)
+    if (r) out.push(r)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+/**
+ * Which EA a report or build is, loosely: "BrooksSetupTesterDAX_v024_bad76042" and
+ * "BrooksSetupTesterDAX_parity_61907080" are both "brookssetuptesterdax"; "SRS_DAX_Corrected_BlackBull"
+ * and "SRSLiveR24A15" both start "srs". Versions, hashes and build words fall away.
+ */
+export function strategyKey(name) {
+  if (!name) return null
+  const stem = basenameAny(String(name)).replace(/\.(ex5|mq5|htm|html|xml)$/i, '').toLowerCase()
+  const segs = stem.split(/[_\s.-]+/).filter(Boolean)
+  if (!segs.length) return null
+  let key = segs[0].replace(/v?\d.*$/, '')
+  if (key.length < 3 && segs[1]) key = `${segs[0]}_${segs[1].replace(/v?\d.*$/, '')}`
+  return key.length >= 2 ? key : null
+}
+export function sameStrategy(a, b) {
+  const x = strategyKey(a), y = strategyKey(b)
+  return !!x && !!y && (x.startsWith(y) || y.startsWith(x))
+}
+
+/** "M5 (2013.01.01 - 2013.12.31)" -> { timeframe: 'M5', from: '2013.01.01', to: '2013.12.31' } */
+export function periodParts(period) {
+  const m = /^\s*([A-Za-z]+\d*)?\s*(?:\((\d{4}[.\-/]\d{2}[.\-/]\d{2})\s*[-–]\s*(\d{4}[.\-/]\d{2}[.\-/]\d{2})\))?/.exec(String(period ?? ''))
+  return { timeframe: m?.[1] ?? null, from: m?.[2] ?? null, to: m?.[3] ?? null }
+}
+
 // ---------------------------------------------------------------------------
 // The state machine
 // ---------------------------------------------------------------------------
@@ -509,10 +582,22 @@ const fmt = n => (n === null || n === undefined ? '?' : Math.abs(n) >= 1000 ? n.
  * @param {(state: object) => void} [opts.onChange] called with snapshot() after each change
  */
 export class EaScenes {
-  constructor({ config = resolveEaConfig({}, {}), now = () => Date.now(), onChange = () => {} } = {}) {
+  constructor({ config = resolveEaConfig({}, {}), now = () => Date.now(), onChange = () => {}, readWorkbench, pin = null, onPin = () => {} } = {}) {
     this.config = config
     this.now = now
     this.onChange = onChange
+    /** The equity wall: a picked report path (null: automatic), when the shown curve went up, what is being worked on */
+    this.pin = typeof pin === 'string' && pin ? pin : null
+    this.onPin = onPin
+    this.shownAt = 0
+    this.focus = null
+    this.held = null
+    this.choices = []
+    /** The EA Workbench run queue (server/ea-workbench.js), read on the rescan */
+    this.wbDir = findWorkbench(config.workbench, config.localAppData)
+    this.readWorkbench = readWorkbench ?? (dir => readWorkbenchFiles(dir, { appData: config.appData, readReport: readReportCached, now: this.now() }))
+    this.wb = null
+    this.wbRunning = null
     this.station = { ...STATION_IDLE }
     /** tool_use_id -> the running call */
     this.calls = new Map()
@@ -738,7 +823,9 @@ export class EaScenes {
   reportReady(call, report, now, base) {
     const summary = reportSummary(report)
     this.showStation(call, { ...base, status: 'done', finishedAt: now, report: summary })
-    this.setEquity(report, 'run')
+    // A run started from a Claude session is what is being worked on: its curve goes up at once (unless one is picked)
+    this.setFocus(report.expert ?? call.config?.expert, 'run', now)
+    if (!this.pin) { this.setEquity(report, 'run'); this.shownAt = now; this.held = null }
     this.pushRun({ kind: 'backtest', status: 'done', at: now, label: base.label, netProfit: summary.netProfit, maxDrawdown: summary.maxDrawdown, maxDrawdownPct: summary.maxDrawdownPct, trades: summary.trades })
     this.say(`tester report ${summary.name}: net ${fmt(summary.netProfit)}, max DD ${fmt(summary.maxDrawdown)}${summary.maxDrawdownPct !== null ? ` (${summary.maxDrawdownPct}%)` : ''}, ${summary.trades ?? '?'} trades`, summary.netProfit !== null && summary.netProfit < 0 ? 'bad' : 'good')
   }
@@ -755,11 +842,131 @@ export class EaScenes {
     if (this.runs.length > RUNS_MAX) this.runs.splice(0, this.runs.length - RUNS_MAX)
   }
 
-  setEquity(report, source) {
-    if (this.equity && this.equity.mtime > report.mtime) return false
-    if (this.equity && this.equity.path === report.path && this.equity.mtime === report.mtime) return false
-    this.equity = { ...reportSummary(report), source, points: report.points, dealCount: report.dealCount }
+  setEquity(report, source, { force = false } = {}) {
+    if (!force && this.equity && this.equity.mtime > report.mtime) return false
+    if (this.equity && this.equity.path === report.path && this.equity.mtime === report.mtime && this.equity.source === source) return false
+    this.equity = { ...reportSummary(report), ...periodParts(report.period), source, points: report.points, dealCount: report.dealCount }
     return true
+  }
+
+  /** What is being worked on (an EA name), from the newest of: a tester run a session started, the Workbench's newest run. */
+  setFocus(expert, source, at) {
+    const key = strategyKey(expert)
+    if (!key) return
+    if (this.focus && this.focus.at > at) return
+    this.focus = { key, expert: basenameAny(String(expert)).replace(/\.ex5$/i, ''), source, at }
+  }
+
+  /**
+   * Pick the wall's report: a path from the choices (or the one shown), or null for automatic.
+   * @returns {boolean} whether it was accepted
+   */
+  setPin(p) {
+    if (p === null || p === undefined || p === '') {
+      this.pin = null
+      this.shownAt = 0
+      try { this.onPin(null) } catch {}
+      this.selectEquity(this.now(), { force: true })
+      this.changed()
+      return true
+    }
+    if (typeof p !== 'string') return false
+    // Only a report the office listed: the page cannot make the server read an arbitrary file
+    const known = this.choices.find(c => c.path === p) ?? (this.equity?.path === p ? this.equity : null)
+    if (!known) return false
+    const r = readReportCached(p)
+    if (!r) return false
+    this.pin = p
+    try { this.onPin(p) } catch {}
+    this.setEquity(r, 'pinned', { force: true })
+    this.shownAt = this.now()
+    this.held = null
+    this.changed()
+    return true
+  }
+
+  /**
+   * The automatic choice: the newest report of the EA being worked on (else the newest of all), switched to
+   * only once the shown one has been up equityDwellMinutes, so a queue writing a report a minute does not flicker.
+   * @returns {boolean} whether the shown curve changed
+   */
+  selectEquity(now, { force = false } = {}) {
+    if (this.pin) {
+      const r = readReportCached(this.pin)
+      if (r && (!this.equity || this.equity.path !== r.path || this.equity.mtime !== r.mtime)) return this.setEquity(r, 'pinned', { force: true })
+      return false
+    }
+    const pool = this.choices.map(c => c.report)
+    if (!pool.length) return false
+    const mine = this.focus ? pool.filter(r => sameStrategy(r.expert ?? r.name, this.focus.key)) : []
+    const best = (mine.length ? mine : pool)[0]
+    if (!best) return false
+    if (this.equity && this.equity.path === best.path && this.equity.mtime === best.mtime) { this.held = null; return false }
+    const dwellMs = this.config.equityDwellMinutes * 60_000
+    const shownFor = now - this.shownAt
+    if (!force && this.equity && this.shownAt && shownFor < dwellMs) {
+      this.held = { name: best.name, expert: best.expert ?? null, at: this.shownAt + dwellMs }
+      return false
+    }
+    this.held = null
+    this.setEquity(best, mine.length ? 'focus' : 'folder', { force: true })
+    this.shownAt = now
+    return true
+  }
+
+  /** The Workbench read again: the station's queue card, the ticker on starts and ends, the focus. */
+  noteWorkbench(wb, now) {
+    if (!wb?.ok) { const had = !!this.wb?.ok; this.wb = wb ?? null; return had }
+    const before = this.wbRunning
+    const ids = new Set(wb.running.map(r => r.id))
+    let changed = JSON.stringify(this.wbView(this.wb)) !== JSON.stringify(this.wbView(wb))
+    if (before) {
+      for (const r of wb.running) if (!before.has(r.id)) { this.say(`Workbench: ${r.test} started on ${r.installName}${r.what ? ` — ${r.what.slice(0, 60)}` : ''}`, 'info'); changed = true }
+      for (const id of before) if (!ids.has(id) && wb.latest?.id === id) {
+        const l = wb.latest
+        this.say(l.report ? `Workbench: ${l.test} finished: net ${fmt(l.report.netProfit)}, max DD ${fmt(l.report.maxDrawdown)}${l.report.maxDrawdownPct !== null && l.report.maxDrawdownPct !== undefined ? ` (${l.report.maxDrawdownPct}%)` : ''}, ${l.report.trades ?? '?'} trades` : `Workbench: ${l.test} finished (${l.why ?? 'no report'})`, l.report ? (l.report.netProfit !== null && l.report.netProfit < 0 ? 'bad' : 'good') : 'info')
+        changed = true
+      }
+    }
+    this.wbRunning = ids
+    this.wb = wb
+    if (wb.newest?.expert && wb.newest.startedAt) this.setFocus(wb.newest.expert, 'workbench', wb.newest.startedAt)
+    return changed
+  }
+
+  /** The Workbench as the page sees it (no paths; numbers only from reports). */
+  wbView(wb = this.wb) {
+    if (!wb?.ok) return null
+    const run = r => ({ id: r.id, test: r.test, install: r.installName, what: r.what, expert: r.expert, symbol: r.symbol, completed: r.completed, planned: r.planned, run: r.run, startedAt: r.startedAt, status: r.status })
+    return {
+      armed: wb.armed, queued: wb.queued, running: wb.running.map(run),
+      installs: wb.installs.map(i => ({ name: i.name, running: i.running?.test ?? null, queued: i.queued, held: i.held })),
+      latest: wb.latest ? { ...run(wb.latest), finishedAt: wb.latest.updatedAt, lastCase: wb.latest.lastCase, report: wb.latest.report ? reportSummary(wb.latest.report) : null, why: wb.latest.why ?? null } : null,
+    }
+  }
+
+  /** What the station shows: a session's own run first (while it runs, and 10 min after), else the Workbench's queue. */
+  stationView(now) {
+    const st = this.station
+    const own = st.status !== 'idle' && (['running', 'compiling', 'awaiting-report'].includes(st.status) || now - (st.finishedAt ?? 0) < 10 * 60_000)
+    const wb = this.wbView()
+    if (own || !wb) return wb ? { ...st, queue: wb } : st
+    const r = wb.running[0]
+    if (r) {
+      const more = wb.running.length > 1 ? ` (+${wb.running.length - 1} more)` : ''
+      return {
+        status: 'running', kind: 'backtest', source: 'workbench', startedAt: r.startedAt ?? undefined,
+        label: `Workbench ${r.test} on ${r.install}${r.planned ? ` · ${r.completed}/${r.planned}` : ''}${more}`,
+        config: { expert: r.expert, symbol: r.symbol }, note: r.what || undefined, queue: wb,
+      }
+    }
+    const l = wb.latest
+    if (l && now - (l.finishedAt ?? 0) < this.config.workbenchRecentMinutes * 60_000) {
+      return l.report
+        ? { status: 'done', kind: 'backtest', source: 'workbench', label: `Workbench ${l.test} on ${l.install}`, startedAt: l.startedAt ?? undefined, finishedAt: l.finishedAt ?? undefined, report: l.report, config: { expert: l.expert, symbol: l.symbol }, queue: wb }
+        : { status: 'report-missing', kind: 'backtest', source: 'workbench', label: `Workbench ${l.test} on ${l.install}`, finishedAt: l.finishedAt ?? undefined, note: `report not found: ${l.why ?? 'none'}`, queue: wb }
+    }
+    return wb.queued ? { ...st, queue: wb } : st
   }
 
   /** Timers: a report that turned up, waits that ran out, the reports folder rescanned, old flags dropped. */
@@ -773,10 +980,19 @@ export class EaScenes {
       if (found.report) { this.calls.delete(key); this.reportReady(call, found.report, now, base); changed = true }
       else if (now >= call.until) { this.calls.delete(key); this.reportMissing(call, base, found.why, null, now); changed = true }
     }
-    if (this.config.reportsDir && now - this.lastScan >= this.config.rescanSeconds * 1000) {
+    if (now - this.lastScan >= this.config.rescanSeconds * 1000) {
       this.lastScan = now
-      const r = newestReport(this.config.reportsDir)
-      if (r && this.setEquity(r, 'folder')) changed = true
+      if (this.wbDir) {
+        let wb = null
+        try { wb = this.readWorkbench(this.wbDir) } catch (err) { wb = { ok: false, why: String(err?.message ?? err) } }
+        if (this.noteWorkbench(wb, now)) changed = true
+      }
+      // The wall's choices: the reports folder's newest, and the Workbench's last result
+      const list = this.config.reportsDir ? recentReports(this.config.reportsDir) : []
+      const extra = [this.wb?.latest?.report, this.equity?.source === 'run' ? readReportCached(this.equity.path) : null].filter(Boolean)
+      const seen = new Set()
+      this.choices = [...list, ...extra].filter(r => r && !seen.has(r.path) && seen.add(r.path)).sort((a, b) => b.mtime - a.mtime).slice(0, 14).map(r => ({ path: r.path, report: r }))
+      if (this.selectEquity(now)) changed = true
     }
     // Expiry
     const screenMs = this.config.screenMinutes * 60_000
@@ -797,13 +1013,18 @@ export class EaScenes {
   snapshot({ resolve = (sessionId, agentId) => (agentId ? null : sessionId ? `main-${sessionId}` : null), trusted = true } = {}) {
     const officeId = (o) => { try { return resolve(o.sessionId, o.agentId) ?? undefined } catch { return undefined } }
     const strip = (r) => { if (!r || trusted) return r; const { path: _p, ...rest } = r; return rest }
-    const station = { ...this.station, officeId: officeId(this.station) }
-    if (station.report) station.report = strip(station.report)
     const now = this.now()
+    const view = this.stationView(now)
+    const station = { ...view, officeId: view.source === 'workbench' ? undefined : officeId(this.station) }
+    if (station.report) station.report = strip(station.report)
     return {
       station,
       runs: this.runs.slice(),
-      equity: this.equity ? strip(this.equity) : null,
+      equity: this.equity ? { ...strip(this.equity), pick: this.pin ? 'pinned' : 'auto', focus: this.focus?.expert ?? null, held: this.held } : null,
+      equityChoices: this.choices.map(c => ({
+        ...(trusted ? { path: c.path } : {}), name: c.report.name, expert: c.report.expert ?? null, symbol: c.report.symbol ?? null,
+        period: c.report.period ?? null, mtime: c.report.mtime, netProfit: c.report.netProfit ?? null,
+      })),
       reportsDir: this.config.reportsDir ? (trusted ? this.config.reportsDir : basenameAny(this.config.reportsDir)) : null,
       cabinets: [...this.years.entries()].sort((a, b) => a[0] - b[0]).map(([year, e]) => ({ year, lastAt: e.lastAt, active: e.running.size > 0 })),
       screens: [...this.screens.values()].map(s => ({ ...s, officeId: officeId(s) })),
@@ -838,6 +1059,7 @@ export function eaReadOnly(ea) {
     ...ea,
     station: ea.station ? { ...ea.station, report: strip(ea.station.report) } : ea.station,
     equity: strip(ea.equity),
+    equityChoices: Array.isArray(ea.equityChoices) ? ea.equityChoices.map(strip) : [],
     reportsDir: ea.reportsDir ? basenameAny(ea.reportsDir) : ea.reportsDir,
   }
 }

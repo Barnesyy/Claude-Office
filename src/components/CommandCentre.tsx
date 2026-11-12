@@ -27,7 +27,7 @@ function ago(at: number | undefined): string {
 }
 
 const CommandCentre: React.FC<Props> = ({ sessions, agents, onClose, onPick }) => {
-  const cols = centreCards(sessions, agents)
+  const cols = centreCards(sessions, agents, Date.now())
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }

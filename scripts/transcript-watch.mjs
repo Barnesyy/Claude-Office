@@ -24,7 +24,7 @@ import { readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { TranscriptWatcher, resolveTranscriptConfig, createConverter } from '../server/transcript-source.js'
+import { TranscriptWatcher, resolveTranscriptConfig, createConverter, payloadTime } from '../server/transcript-source.js'
 import { readOfficeConfig, readPort } from '../server/config.js'
 import { FactExtractor } from '../server/progression-facts.js'
 import { isEaRelevant, slimPayload } from '../server/ea-scenes.js'
@@ -103,7 +103,10 @@ const converter = createConverter({ forceJs: flag('--js') })
 // signals builds, tests and pushes; the built-in converter does not, so then
 // the extractor reads those too.
 const PROGRESSION_URL = EVENT_URL.replace(/\/event$/, '/progression/facts')
-const extractor = flag('--no-progression') ? null : new FactExtractor({ withSignals: converter.kind !== 'js' })
+// Lessons and other facts are timed by the transcript's own clock, and a catch-up read of what ran before this
+// watcher started earns nothing (--from-start replays count, as the demo replays do)
+const WATCH_STARTED_AT = Date.now()
+const extractor = flag('--no-progression') ? null : new FactExtractor({ withSignals: converter.kind !== 'js', timeOf: payloadTime, startedAt: flag('--from-start') ? undefined : WATCH_STARTED_AT })
 let factQueue = Promise.resolve()
 async function postFacts(facts) {
   for (let attempt = 0; attempt < 5; attempt++) {

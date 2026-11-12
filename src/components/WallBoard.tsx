@@ -19,6 +19,7 @@ import type { SessionInfo } from '../types'
 import { BOARD_RECT, boardLabel, shownBoard, taskCaption, useTaskBoards, type BoardTask } from '../taskBoard'
 import {
   WALL_CYCLE_MS, WALL_MODES, WALL_TITLES, curvePath, money, pct, useEa, wallMode, wallModesWithContent,
+  equityCaption, choiceLabel, canPickEquity, pinEquity,
   type EaEquity, type EaState, type WallMode,
 } from '../eaScenes'
 import '../styles/taskboard.css'
@@ -86,7 +87,8 @@ function Equity({ eq, reportsDir }: { eq: EaEquity | null; reportsDir: string | 
   const up = (eq.netProfit ?? 0) >= 0
   return (
     <div className="wall-equity">
-      <div className="wall-title">{eq.expert ?? eq.name}{eq.symbol ? ` · ${eq.symbol}` : ''}</div>
+      <div className="wall-title" data-testid="wall-equity-caption">{equityCaption(eq)}</div>
+      <div className="wall-equity-pick">{eq.pick === 'pinned' ? 'PINNED' : eq.source === 'run' ? 'LAST RUN' : eq.source === 'focus' ? `AUTO · ${eq.focus ?? ''}` : 'AUTO · newest'}</div>
       <svg viewBox="0 0 100 52" preserveAspectRatio="none" className="wall-curve" aria-hidden="true">
         {[13, 26, 39].map(y => <line key={y} x1={0} y1={y} x2={100} y2={y} stroke="#c6ccd8" strokeWidth={0.6} />)}
         <path d={curve.area} fill={up ? 'rgba(46, 160, 67, 0.16)' : 'rgba(220, 60, 50, 0.16)'} />
@@ -127,7 +129,7 @@ function WallZoom({ mode, ea }: { mode: 'equity' | 'ticker'; ea: EaState }) {
     <div className="wall-zoom" style={{ left: `${BOARD_RECT.left + BOARD_RECT.width / 2}%`, top: `${BOARD_RECT.top - 0.6}%` }} role="tooltip" data-testid="wall-zoom">
       {mode === 'equity' && (eq && curve ? (
         <>
-          <div className="wall-zoom-head">{eq.expert ?? eq.name}{eq.symbol ? ` · ${eq.symbol}` : ''}{eq.period ? ` · ${eq.period}` : ''}</div>
+          <div className="wall-zoom-head">{equityCaption(eq)}</div>
           <svg viewBox="0 0 220 84" className="wall-zoom-curve" aria-hidden="true">
             {[21, 42, 63].map(y => <line key={y} x1={0} y1={y} x2={220} y2={y} stroke="#2c2a1e" strokeWidth={1} />)}
             <path d={curve.area} fill={(eq.netProfit ?? 0) >= 0 ? 'rgba(126, 211, 107, 0.14)' : 'rgba(255, 122, 107, 0.14)'} />
@@ -138,7 +140,8 @@ function WallZoom({ mode, ea }: { mode: 'equity' | 'ticker'; ea: EaState }) {
             <span>Max {eq.drawdownKind ?? ''} DD {money(eq.maxDrawdown, { sign: false })}{eq.maxDrawdownPct !== null ? ` (${pct(eq.maxDrawdownPct)})` : ''}</span>
             <span>{eq.trades ?? '—'} trades</span>
           </div>
-          <div className="wall-zoom-foot">balance after each of {eq.dealCount} deals · {eq.name}{eq.source === 'folder' ? ' (reports folder)' : ''}</div>
+          <div className="wall-zoom-foot">balance after each of {eq.dealCount} deals · {eq.name}{eq.pick === 'pinned' ? ' (pinned)' : eq.source === 'focus' ? ` (newest ${eq.focus ?? ''} report)` : eq.source === 'folder' ? ' (newest report)' : ''}</div>
+          {eq.held && <div className="wall-zoom-foot">newer: {eq.held.expert ?? eq.held.name} ({eq.held.name}) shows after {new Date(eq.held.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</div>}
         </>
       ) : (
         <div className="wall-zoom-head">No tester report yet{ea.reportsDir ? ` (watching ${ea.reportsDir})` : ''}</div>
@@ -160,7 +163,7 @@ function WallZoom({ mode, ea }: { mode: 'equity' | 'ticker'; ea: EaState }) {
 
 function equityTitle(eq: EaEquity | null): string {
   if (!eq) return 'Balance curve: no tester report yet'
-  return `Balance after each deal — ${eq.name}${eq.source === 'folder' ? ' (newest in the reports folder)' : ''}: net ${money(eq.netProfit)}, max ${eq.drawdownKind ?? ''} drawdown ${money(eq.maxDrawdown, { sign: false })}${eq.maxDrawdownPct !== null ? ` (${pct(eq.maxDrawdownPct)})` : ''}, ${eq.trades ?? '—'} trades, ${eq.dealCount} deals plotted`
+  return `Balance after each deal — ${equityCaption(eq)} (${eq.name}${eq.pick === 'pinned' ? ', pinned' : eq.source === 'focus' ? `, newest ${eq.focus ?? ''} report` : eq.source === 'folder' ? ', newest in the reports folder' : ''}): net ${money(eq.netProfit)}, max ${eq.drawdownKind ?? ''} drawdown ${money(eq.maxDrawdown, { sign: false })}${eq.maxDrawdownPct !== null ? ` (${pct(eq.maxDrawdownPct)})` : ''}, ${eq.trades ?? '—'} trades, ${eq.dealCount} deals plotted`
 }
 
 function previewWall(): WallMode | null {
@@ -236,6 +239,21 @@ const WallBoard: React.FC<Props> = ({ sessions, night, onActivate }) => {
           </button>
         ))}
       </div>
+      {mode === 'equity' && ea.equityChoices.length > 0 && canPickEquity() && (
+        <select
+          className="wall-pick"
+          data-testid="wall-equity-pick"
+          aria-label="Which report the balance curve shows"
+          title="Which report the balance curve shows: Auto follows the EA being worked on (a curve stays up at least 10 min)"
+          style={{ left: `${BOARD_RECT.left}%`, top: `${BOARD_RECT.top + BOARD_RECT.height + 3.4}%`, width: `${BOARD_RECT.width}%`, transform: `skewY(${BOARD_RECT.skewDeg}deg)` }}
+          value={ea.equity?.pick === 'pinned' ? ea.equity.path ?? '' : ''}
+          onClick={e => e.stopPropagation()}
+          onChange={e => { void pinEquity(e.target.value || null) }}
+        >
+          <option value="">Auto: EA being worked on</option>
+          {ea.equityChoices.filter(c => c.path).map(c => <option key={c.path} value={c.path}>{choiceLabel(c)}</option>)}
+        </select>
+      )}
     </>
   )
 }

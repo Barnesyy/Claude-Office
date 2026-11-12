@@ -136,3 +136,6 @@
   color: var(--strip-dim);
   pointer-events: none;
 }
+
+/* Needs-you older than 6 h: its own, quieter bucket */
+.strip-stale { color: var(--strip-dim, #8a8f98); opacity: 0.85; cursor: help; }

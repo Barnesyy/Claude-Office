@@ -798,6 +798,8 @@ export class TranscriptWatcher {
     this.firstScan = true
     this.timer = null
     this.stats = { payloads: 0, events: 0 }
+    /** When this watcher started: events rebuilt from records older than this are a catch-up read (`replayed`) */
+    this.startedAt = now()
   }
 
   start() {
@@ -1061,11 +1063,15 @@ export class TranscriptWatcher {
         try { events = await this.converter.convert(p) } catch (err) { this.log.warn?.(`[transcripts] convert: ${err.message}`) }
         // The office shows the readable label (EA Dev · School Run), not the raw basename
         const { label } = labelFor(s.homeCwd || p.cwd || s.cwd, s.encodedDir, s.projects)
+        const at = payloadTimes.get(p)
+        const replayed = !this.fromStart && Number.isFinite(at) && at < this.startedAt - 1000
         for (const e of events) {
           if ('project' in e || e.sessionId) e.project = label
           if (p.prompt_from_other && e.type === 'session_prompt') e.isWakeup = true
           delete e.answerable; delete e.nonce; delete e.claim
           e.via = 'transcript'
+          // History read at start-up: the office shows it, progression does not count it
+          if (replayed) e.replayed = true
         }
         this.stats.events += events.length
         if (events.length) {

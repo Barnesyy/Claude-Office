@@ -12,6 +12,10 @@
 import { useSyncExternalStore } from 'react'
 import type { Agent, OfficeEvent, SessionInfo } from './types'
 import type { ScreenKind } from './screens'
+import { isStaleNeedsYou, needsYouSince } from './mainState'
+import { officeHttpBase } from './serverUrl'
+import { getUiToken } from './permissions'
+import { onPhoneFullPage } from './phoneSecret'
 
 export type StationStatus =
   | 'idle' | 'running' | 'compiling' | 'awaiting-report' | 'done' | 'report-missing' | 'failed'
@@ -48,10 +52,36 @@ export interface EaStation {
   note?: string
   error?: string
   officeId?: string
+  /** 'workbench': the EA Workbench run queue's run (server/ea-workbench.js), not a session's tool call */
+  source?: 'workbench'
+  /** The Workbench queue, whenever it is readable */
+  queue?: EaQueue
 }
 
+export interface EaQueueRun {
+  id: string; test: string; install: string; what?: string; expert?: string | null; symbol?: string | null
+  completed?: number | null; planned?: number | null; run?: string | null; startedAt?: number | null; status?: string
+}
+export interface EaQueue {
+  armed: boolean
+  queued: number
+  running: EaQueueRun[]
+  installs: Array<{ name: string; running: string | null; queued: number; held: string | null }>
+  latest: (EaQueueRun & { finishedAt?: number | null; lastCase?: string | null; report: EaReport | null; why: string | null }) | null
+}
+
+export interface EaChoice { path?: string; name: string; expert: string | null; symbol: string | null; period: string | null; mtime: number; netProfit: number | null }
+
 export interface EaEquity extends EaReport {
-  source: 'run' | 'folder'
+  source: 'run' | 'folder' | 'focus' | 'pinned'
+  /** 'pinned': picked on the wall; 'auto': the newest of the EA being worked on (focus) */
+  pick?: 'pinned' | 'auto'
+  focus?: string | null
+  /** A newer report waiting out the dwell time */
+  held?: { name: string; expert: string | null; at: number } | null
+  timeframe?: string | null
+  from?: string | null
+  to?: string | null
   /** [time ms, balance] after each deal (thinned by the server) */
   points: Array<[number, number]>
   dealCount: number
@@ -61,6 +91,8 @@ export interface EaState {
   station: EaStation
   runs: Array<{ kind: 'backtest' | 'compile'; status: StationStatus; at: number; label: string; netProfit?: number | null; maxDrawdown?: number | null; maxDrawdownPct?: number | null; trades?: number | null; errors?: number | null; warnings?: number | null }>
   equity: EaEquity | null
+  /** Reports the wall can be pinned to, newest first */
+  equityChoices: EaChoice[]
   reportsDir: string | null
   cabinets: Array<{ year: number; lastAt: number; active: boolean }>
   screens: Array<{ sessionId?: string; agentId?: string; kind: 'mq5' | 'set' | 'tester'; file: string; at: number; officeId?: string }>
@@ -70,7 +102,7 @@ export interface EaState {
 }
 
 export const EA_EMPTY: EaState = Object.freeze({
-  station: { status: 'idle', kind: null }, runs: [], equity: null, reportsDir: null, cabinets: [], screens: [], risk: [], ticker: [], now: 0,
+  station: { status: 'idle', kind: null }, runs: [], equity: null, equityChoices: [], reportsDir: null, cabinets: [], screens: [], risk: [], ticker: [], now: 0,
 }) as EaState
 
 /** The wire's state, checked field by field (a bad field becomes empty, never a guess). */
@@ -86,6 +118,7 @@ export function cleanEa(raw: unknown): EaState {
     station,
     runs: arr(r.runs),
     equity,
+    equityChoices: arr<EaChoice>(r.equityChoices).filter(c => c && typeof c.name === 'string' && Number.isFinite(c.mtime)),
     reportsDir: typeof r.reportsDir === 'string' ? r.reportsDir : null,
     cabinets: arr<EaState['cabinets'][number]>(r.cabinets).filter(c => c && Number.isInteger(c.year)),
     screens: arr<EaState['screens'][number]>(r.screens).filter(s => s && (s.kind === 'mq5' || s.kind === 'set' || s.kind === 'tester')),
@@ -174,6 +207,33 @@ export function stationHeadline(s: EaStation): string {
     case 'compile-unknown': return `${s.compile?.file ?? 'EA'}: result unknown`
     default: return 'backtest station idle'
   }
+}
+
+/** The wall's caption for a curve: EA · symbol · timeframe · date range (whatever the report names). */
+export function equityCaption(eq: Pick<EaEquity, 'expert' | 'name' | 'symbol' | 'period' | 'timeframe' | 'from' | 'to'>): string {
+  const range = eq.from && eq.to ? `${eq.from}–${eq.to}` : null
+  const tf = eq.timeframe ?? (range ? null : eq.period ?? null)
+  return [eq.expert ?? eq.name, eq.symbol, tf, range].filter(Boolean).join(' · ')
+}
+
+/** A choice in the wall's picker: "BrooksSetupTesterDAX_v024 · DAX40 · M5 (2013…) · 17:00". */
+export function choiceLabel(c: EaChoice): string {
+  const t = new Date(c.mtime)
+  const time = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`
+  return [c.expert ?? c.name, c.symbol, c.period, time].filter(Boolean).join(' · ').slice(0, 110)
+}
+
+/** The queue's lines for the station card: per tester what runs, and how many wait. */
+export function queueLines(q: EaQueue | undefined | null): string[] {
+  if (!q) return []
+  const out: string[] = []
+  for (const r of q.running.slice(0, 4)) out.push(`▶ ${r.install}: ${r.test}${r.planned ? ` ${r.completed ?? 0}/${r.planned}` : ''}${r.run ? ` · ${r.run}` : ''}`)
+  const held = q.installs.filter(i => i.held && !i.running)
+  if (q.queued) out.push(`${q.queued} queued${q.installs.filter(i => i.queued).map(i => ` · ${i.name} ${i.queued}`).join('')}`)
+  else out.push('queue empty')
+  for (const h of held.slice(0, 2)) out.push(`⏸ ${h.name} held`)
+  if (!q.armed) out.push('runner disarmed')
+  return out
 }
 
 /** "0:42" for a run so far */
@@ -299,9 +359,9 @@ export function wallMode(picked: WallMode | null, withContent: readonly WallMode
 // The Command Centre (paulrobello/claude-office's columns)
 // ---------------------------------------------------------------------------
 
-export type CentreColumn = 'needs-you' | 'working' | 'done' | 'ended'
+export type CentreColumn = 'needs-you' | 'working' | 'done' | 'stale' | 'ended'
 export const CENTRE_COLUMNS: ReadonlyArray<{ id: CentreColumn; title: string }> = [
-  { id: 'needs-you', title: 'Needs you' }, { id: 'working', title: 'Working' }, { id: 'done', title: 'Done' }, { id: 'ended', title: 'Ended' },
+  { id: 'needs-you', title: 'Needs you' }, { id: 'working', title: 'Working' }, { id: 'done', title: 'Done' }, { id: 'stale', title: 'Stale >6h' }, { id: 'ended', title: 'Ended' },
 ]
 
 export interface CentreCard {
@@ -316,16 +376,20 @@ export interface CentreCard {
 }
 
 /** Which column a session belongs in, from its main-thread record and the registry. */
-export function centreColumn(s: SessionInfo): CentreColumn {
+export function centreColumn(s: SessionInfo, now = Date.now()): CentreColumn {
   if (s.state === 'ended') return 'ended'
   const main = s.main?.state
-  if (main === 'needs-you' || main === 'error' || s.registry?.status === 'waiting') return 'needs-you'
+  if (main === 'needs-you' || main === 'error' || s.registry?.status === 'waiting') {
+    // A hand up for over 6 h is an old terminal at a dialog, not today's work
+    if (main !== 'error' && isStaleNeedsYou(s, now)) return 'stale'
+    return 'needs-you'
+  }
   if (main === 'working' || main === 'waiting' || main === 'compacting' || s.registry?.status === 'busy' || s.registry?.status === 'shell') return 'working'
   return 'done'
 }
 
 function centreLine(s: SessionInfo, column: CentreColumn): string {
-  if (column === 'needs-you') {
+  if (column === 'needs-you' || column === 'stale') {
     const n = s.main?.needsYou
     if (s.main?.state === 'error') return `error: ${s.main.error?.error ?? 'API error'}`
     if (n?.kind === 'permission' || n?.toolName) return `permission: ${n?.summary ?? n?.toolName ?? 'a tool'}`
@@ -337,20 +401,44 @@ function centreLine(s: SessionInfo, column: CentreColumn): string {
 }
 
 /** Every session as a card in its column, newest activity first. */
-export function centreCards(sessions: readonly SessionInfo[], agents: readonly Agent[] = []): Record<CentreColumn, CentreCard[]> {
-  const out: Record<CentreColumn, CentreCard[]> = { 'needs-you': [], working: [], done: [], ended: [] }
+export function centreCards(sessions: readonly SessionInfo[], agents: readonly Agent[] = [], now = Date.now()): Record<CentreColumn, CentreCard[]> {
+  const out: Record<CentreColumn, CentreCard[]> = { 'needs-you': [], working: [], done: [], stale: [], ended: [] }
   const sorted = [...sessions].sort((a, b) => (b.lastActivityAt ?? b.startedAt ?? 0) - (a.lastActivityAt ?? a.startedAt ?? 0))
   for (const s of sorted) {
-    const column = centreColumn(s)
+    const column = centreColumn(s, now)
     out[column].push({
       id: s.id,
       title: s.title || s.registry?.name || s.project || s.id.slice(0, 8),
       project: s.project,
       column,
       line: centreLine(s, column).replace(/\s+/g, ' ').slice(0, 120),
-      since: s.main?.since ?? s.lastActivityAt ?? s.startedAt,
+      since: column === 'needs-you' || column === 'stale' ? needsYouSince(s) : s.main?.since ?? s.lastActivityAt ?? s.startedAt,
       workers: agents.filter(a => a.sessionId === s.id && !a.id.startsWith('main-')).length,
     })
   }
   return out
+}
+
+// ---------------------------------------------------------------------------
+// The equity wall's picker
+// ---------------------------------------------------------------------------
+
+/** Whether this page may pick the wall's report (it holds the UI token; a LAN phone does not). */
+export function canPickEquity(): boolean {
+  return !onPhoneFullPage() && !!getUiToken()
+}
+
+/** Pin the wall to a listed report, or null for automatic. The server answers with a new ea_state. */
+export async function pinEquity(path: string | null): Promise<boolean> {
+  const uiToken = getUiToken()
+  if (!uiToken || onPhoneFullPage()) return false
+  try {
+    const res = await fetch(`${officeHttpBase()}/ea/equity/pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${uiToken}` },
+      body: JSON.stringify({ path }),
+      signal: AbortSignal.timeout(5000),
+    })
+    return res.ok
+  } catch { return false }
 }

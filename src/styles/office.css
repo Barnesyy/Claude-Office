@@ -1704,3 +1704,6 @@
   border-bottom: 1px solid #35363a;
   -webkit-app-region: no-drag;
 }
+
+/* A needs-you older than 6 h (src/mainState.ts isStaleNeedsYou) */
+.session-pill.stale { opacity: 0.55; }
