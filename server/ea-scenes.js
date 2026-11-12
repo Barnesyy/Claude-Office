@@ -890,11 +890,25 @@ export class EaScenes {
   }
 
   /** What is being worked on (an EA name), from the newest of: a tester run a session started, the Workbench's newest run. */
-  setFocus(expert, source, at) {
+  setFocus(expert, source, at, build = []) {
     const key = strategyKey(expert)
     if (!key) return
     if (this.focus && this.focus.at > at) return
-    this.focus = { key, expert: basenameAny(String(expert)).replace(/\.ex5$/i, ''), source, at }
+    this.focus = { key, expert: basenameAny(String(expert)).replace(/\.ex5$/i, ''), source, at, build: Array.isArray(build) ? build : [] }
+  }
+
+  /**
+   * Whether a report is the work in focus: a build of that EA by name, or (Workbench) a report its runs wrote:
+   * in one of their testers' folders, since that run started. The second catches an EA whose report names it
+   * differently from its file (EA_BrooksPA_BlackBull.ex5 reports itself as BPASDR16Twin).
+   */
+  isFocusReport(r) {
+    const f = this.focus
+    if (!f || !r) return false
+    if (sameStrategy(r.expert ?? r.name, f.key)) return true
+    if (!f.build?.length || !r.path) return false
+    const folder = reportFolder(r.path).id.toUpperCase()
+    return f.build.some(b => b.install === folder && r.mtime >= b.since - 1000)
   }
 
   /**
@@ -938,7 +952,7 @@ export class EaScenes {
     }
     const pool = (this.pool.length ? this.pool : this.choices).map(c => c.report)
     if (!pool.length) return false
-    const mine = this.focus ? pool.filter(r => sameStrategy(r.expert ?? r.name, this.focus.key)) : []
+    const mine = pool.filter(r => this.isFocusReport(r))
     const best = (mine.length ? mine : pool)[0]
     if (!best) return false
     if (this.equity && this.equity.path === best.path && this.equity.mtime === best.mtime) { this.held = null; return false }
@@ -970,7 +984,7 @@ export class EaScenes {
     }
     this.wbRunning = ids
     this.wb = wb
-    if (wb.newest?.expert && wb.newest.startedAt) this.setFocus(wb.newest.expert, 'workbench', wb.newest.startedAt)
+    if (wb.newest?.expert && wb.newest.startedAt) this.setFocus(wb.newest.expert, 'workbench', wb.newest.startedAt, wb.newest.build)
     return changed
   }
 
@@ -1034,7 +1048,7 @@ export class EaScenes {
       this.pool = dedupeReports([...list, ...extra], this.wb?.names ?? {})
       // The picker: the newest, plus the shown and the focus EA's newest when they are older
       const top = this.pool.slice(0, CHOICES_MAX)
-      const mine = this.focus ? this.pool.find(c => sameStrategy(c.report.expert ?? c.report.name, this.focus.key)) : null
+      const mine = this.pool.find(c => this.isFocusReport(c.report)) ?? null
       for (const c of [mine, this.pool.find(c => c.path === this.equity?.path)]) if (c && !top.includes(c)) top.push(c)
       this.choices = top
       if (this.selectEquity(now)) changed = true
@@ -1070,7 +1084,7 @@ export class EaScenes {
         ...(trusted ? { path: c.path } : {}), name: c.report.name, expert: c.report.expert ?? null, symbol: c.report.symbol ?? null,
         period: c.report.period ?? null, mtime: c.report.mtime, netProfit: c.report.netProfit ?? null,
         file: c.file ?? basenameAny(c.path), folder: c.folder ?? reportFolder(c.path, this.wb?.names ?? {}).name, also: c.also ?? 0,
-        focus: !!(this.focus && sameStrategy(c.report.expert ?? c.report.name, this.focus.key)),
+        focus: this.isFocusReport(c.report),
       })),
       reportsDir: this.config.reportsDir ? (trusted ? this.config.reportsDir : basenameAny(this.config.reportsDir)) : null,
       cabinets: [...this.years.entries()].sort((a, b) => a[0] - b[0]).map(([year, e]) => ({ year, lastAt: e.lastAt, active: e.running.size > 0 })),

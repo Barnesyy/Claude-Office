@@ -28,6 +28,9 @@
 import { existsSync, readFileSync, statSync } from 'fs'
 import path from 'path'
 
+/** An EA file path compared loosely: slashes and case */
+const normExpert = p => String(p).replace(/\\/g, '/').toLowerCase()
+
 /** runqueue.py's FINISHED: a pipeline status with any of these words has ended */
 export const FINISHED = /COMPLETE|REVIEW|FAIL|STOP|PAUS|INVALID|ABORT|CLOSED|ERROR|HALT|BLOCKED|DONE/i
 const OPEN = new Set(['queued', 'starting'])
@@ -103,6 +106,7 @@ export function readWorkbench(dir, { alive = pidAlive, readReport = () => null, 
       id: String(it.id ?? ''), test: String(it.test ?? ''), install: String(ps.terminal || it.install || '').toUpperCase(),
       what: shortWhat(it.what), campaign: base(it.campaign), campaignPath: it.campaign,
       expert: it.expert ? base(String(it.expert).replace(/\\/g, '/')).replace(/\.ex5$/i, '') : null, symbol: it.symbol ?? null,
+      expertPath: it.expert ? normExpert(it.expert) : null,
       status, running: !finished && procAlive, finished,
       startedAt: when(it.started), updatedAt: when(ps.updated) ?? when(pr.updated),
       completed: Number.isFinite(ps.completed) ? ps.completed : cases.length, planned: Number.isFinite(ps.planned) ? ps.planned : (Number.isFinite(pr.planned) ? pr.planned : null),
@@ -156,6 +160,11 @@ export function readWorkbench(dir, { alive = pidAlive, readReport = () => null, 
     names: Object.fromEntries(Object.entries(installs).map(([id, v]) => [id.toUpperCase(), String(v?.name || '')]).filter(([, n]) => n)),
     latest,
     /** The newest started run (what is being worked on), for the equity wall's focus */
-    newest: started[0] ? { test: String(started[0].test ?? ''), expert: started[0].expert ? base(String(started[0].expert).replace(/\\/g, '/')).replace(/\.ex5$/i, '') : null, startedAt: when(started[0].started) } : null,
+    newest: started[0] ? {
+      test: String(started[0].test ?? ''), expert: started[0].expert ? base(String(started[0].expert).replace(/\\/g, '/')).replace(/\.ex5$/i, '') : null, startedAt: when(started[0].started),
+      // The same build's runs (one EA file, several testers): their reports are what the newest run is working on,
+      // whatever name the EA gives itself inside the report
+      build: started[0].expert ? runs.filter(r => r.expertPath === normExpert(started[0].expert) && r.install && r.startedAt).map(r => ({ install: r.install, since: r.startedAt })) : [],
+    } : null,
   }
 }
