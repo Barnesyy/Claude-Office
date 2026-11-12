@@ -373,6 +373,10 @@ const ID = '[^/]{1,200}'
  *   GET /chat, /agents, /sessions, /signals, /tasks, /registry, /permissions,
  *   /health, GET /status
  *       reads the page never makes: the WebSocket already carries what it draws
+ *   GET /progression, /progression/day, /progression/quarter
+ *       the progression cabinet and panel (src/progression.ts): their labels
+ *       carry project, repo and file names, and the phone's page never
+ *       fetches them (onPhoneFullPage); a phone shows no progression
  *   OPTIONS, HEAD on a route, every other method
  *       the page is same-origin, so nothing preflights
  *

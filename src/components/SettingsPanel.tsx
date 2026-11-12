@@ -32,6 +32,7 @@ import {
   useServerSettings, setAnswerPermissions, setLogPrompts, setAiPaused, setNotifyPermissions,
   LOG_PROMPTS_LEVELS, type LogPromptsLevel,
 } from '../serverSettings'
+import ProgressionSettings from './ProgressionSettings'
 import '../styles/settings.css'
 
 interface SettingsPanelProps {
@@ -305,6 +306,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
         <div className="sp-note sp-foot">Boss sprite: <code>boss.sprite</code> in <code>office.config.json</code> (read when the server starts).</div>
       </section>
+
+      <ProgressionSettings disabled={serverDisabled} reason={serverBlocked} />
     </div>
   )
 }
