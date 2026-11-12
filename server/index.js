@@ -23,7 +23,7 @@ import express from 'express'
 import { createServer, STATUS_CODES } from 'http'
 import { createServer as createTlsServer } from 'https'
 import { WebSocketServer, WebSocket } from 'ws'
-import { readFileSync, existsSync, writeFileSync, mkdirSync, realpathSync, chmodSync, unlinkSync, openSync, fstatSync, closeSync, constants as fsConstants } from 'fs'
+import { readFileSync, existsSync, writeFileSync, mkdirSync, realpathSync, chmodSync, unlinkSync, openSync, fstatSync, closeSync, renameSync, copyFileSync, fsyncSync, constants as fsConstants } from 'fs'
 import { homedir } from 'os'
 import { join, basename } from 'path'
 import { randomBytes, timingSafeEqual, createHmac } from 'crypto'
@@ -206,10 +206,103 @@ const AUTH_TOKEN = REUSED_TOKEN ?? randomBytes(32).toString('hex')
 /**
  * Write a file only this user can read. The mode applies when the file is
  * created, so a file an older version left world-readable is fixed as well.
+ * The bytes go to a temp file, are flushed, then the temp is renamed into
+ * place, so a crash or a sleep mid-write cannot leave a truncated (or
+ * all-NUL) dest. For agents.json, the previous good file is kept as
+ * agents.json.bak first.
  */
-function writePrivate(path, data) {
-  writeFileSync(path, data, { mode: 0o600 })
-  try { chmodSync(path, 0o600) } catch {}
+function writePrivate(file, data) {
+  const tmp = `${file}.tmp-${process.pid}-${randomBytes(4).toString('hex')}`
+  writeFileSync(tmp, data, { mode: 0o600 })
+  try { chmodSync(tmp, 0o600) } catch {}
+  try {
+    const fd = openSync(tmp, 'r+')
+    try { fsyncSync(fd) } finally { closeSync(fd) }
+  } catch {}
+  if (basename(file) === 'agents.json') preserveAgentsBackup(file)
+  replaceFile(tmp, file)
+  try { chmodSync(file, 0o600) } catch {}
+}
+
+/** Move `tmp` to `dest`, replacing what was there. tmp is removed. */
+function replaceFile(tmp, dest) {
+  try {
+    renameSync(tmp, dest)
+    return
+  } catch {
+    // Windows cannot rename over an existing file
+  }
+  try {
+    if (existsSync(dest)) unlinkSync(dest)
+    renameSync(tmp, dest)
+  } catch (err) {
+    try {
+      copyFileSync(tmp, dest)
+      unlinkSync(tmp)
+    } catch (err2) {
+      try { unlinkSync(tmp) } catch {}
+      throw err2
+    }
+  }
+}
+
+/** Keep the last good agents.json as .bak, so a later bad write can be recovered. */
+function preserveAgentsBackup(file) {
+  if (!existsSync(file) || !readJsonLenient(file)) return
+  const bak = file + '.bak'
+  try {
+    copyFileSync(file, bak)
+    try { chmodSync(bak, 0o600) } catch {}
+  } catch {}
+}
+
+/**
+ * Read a JSON object, tolerating a UTF-8 BOM and leading NULs (OneDrive / a
+ * torn write). Returns null if the file is missing or not an object.
+ */
+function readJsonLenient(file) {
+  if (!existsSync(file)) return null
+  let buf
+  try { buf = readFileSync(file) } catch { return null }
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) buf = buf.subarray(3)
+  let i = 0
+  while (i < buf.length && buf[i] === 0) i++
+  if (i >= buf.length) return null
+  let text = buf.subarray(i).toString('utf8')
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1)
+  try {
+    const v = JSON.parse(text)
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : null
+  } catch { return null }
+}
+
+/**
+ * Load agents.json, or its .bak if the main file is unreadable. A bad main
+ * file is moved aside (not deleted) so nothing is lost.
+ * @returns {{ data: object | null, from: string | null }}
+ */
+function readAgentsState(file) {
+  const main = existsSync(file) ? readJsonLenient(file) : null
+  if (main) return { data: main, from: 'main' }
+  if (existsSync(file)) {
+    const stamp = new Date()
+    const pad = n => String(n).padStart(2, '0')
+    const dest = `${file}.corrupt-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}`
+    try { renameSync(file, dest) } catch {
+      try { copyFileSync(file, dest) } catch {}
+    }
+    if (existsSync(dest)) console.warn(`[agents] ${file} was not valid JSON; kept a copy at ${dest}`)
+  }
+  const bak = file + '.bak'
+  const fallback = readJsonLenient(bak)
+  if (fallback) {
+    console.warn(`[agents] Restoring from ${bak}`)
+    if (!existsSync(file)) {
+      try { copyFileSync(bak, file); chmodSync(file, 0o600) } catch {}
+    }
+    return { data: fallback, from: 'bak' }
+  }
+  return { data: null, from: null }
 }
 
 /**
@@ -1419,9 +1512,11 @@ function saveAgents() {
 }
 
 function loadAgents() {
-  if (!existsSync(AGENTS_FILE)) return
+  if (!existsSync(AGENTS_FILE) && !existsSync(AGENTS_FILE + '.bak')) return
   try {
-    const { agents = [], sessions: saved = [] } = JSON.parse(readFileSync(AGENTS_FILE, 'utf8'))
+    const loaded = readAgentsState(AGENTS_FILE)
+    if (!loaded.data) return
+    const { agents = [], sessions: saved = [] } = loaded.data
     const cutoff = Date.now() - STALE_AGENT_MS
     for (const agent of agents) {
       if (!agent?.id || agent.state === 'completed') continue

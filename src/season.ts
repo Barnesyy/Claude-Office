@@ -54,9 +54,10 @@
  */
 
 import { useSyncExternalStore } from 'react'
-import { probeImage, subscribeIncidentAssets } from './incidentAssets'
+import { subscribeIncidentAssets } from './incidentAssets'
 import { readSeasonPreference, seasonFromUrl, type SeasonPreference } from './settings'
 import { SEASON_SUFFIX, isHoliday, type Holiday, type Quarter, type Season } from './seasonNames'
+import { SEASON_FILES } from './seasonManifest'
 
 export type { Holiday, Quarter, Season }
 
@@ -189,35 +190,26 @@ export function seasonalVariant(url: string, s: Season): string {
 /**
  * The image whose seasonal copy says a season has been drawn at all.
  *
- * Why: the quarters are on all year, so without this every swappable image
- * (the room, each desk and plant, a sprite per character and direction) would
- * cost one failed request on every page load for as long as a season has no
- * art, and two on a holiday. Instead one probe of this file answers for the
- * whole season: no key file, no further requests. That is at most one 404 per
- * layer in force (two on a holiday) however many images the office draws.
- * Why this and not a generated list of the files: a list has to be rebuilt
- * whenever art is added and is silently wrong when someone forgets; a file
- * that is either there or not cannot go stale, and "drop the file in, reload"
- * stays true. Why the default theme's day room: it is the first thing to draw
- * for a season, and in the default theme its probe is the one the room makes
- * anyway, so the check costs nothing extra there.
+ * Why: the quarters are on all year. Which copies exist is listed in
+ * src/seasonManifest.ts (generated from public/ by scripts/season-manifest.mjs),
+ * so a missing -autumn.webp is not requested and does not 404. The key file
+ * still decides whether a season has been drawn at all: no key file, no
+ * further lookups. Why the default theme's day room: it is the first thing
+ * to draw for a season.
  */
 export const SEASON_KEY_ART = '/rooms/office-day.png'
 
-// A copy's URL -> whether it exists; null while its probe is in flight
+// A copy's URL -> whether it exists (test hook first, else the shipped list).
 const known = new Map<string, boolean | null>()
+let manifest: ReadonlySet<string> = SEASON_FILES
 
-/** Whether `variant` exists; null until its probe (started by the first call) answers. */
+/** Whether `variant` exists. The shipped list answers at once: no request, no 404. */
 function exists(variant: string): boolean | null {
   const state = known.get(variant)
   if (state !== undefined) return state
-  known.set(variant, null) // Why: one probe per file, however often it renders
-  void probeImage(variant).then(found => {
-    // Why the check: an answer already set (the test hook) is not overwritten
-    if (known.get(variant) === null) known.set(variant, found)
-    bump()
-  })
-  return null
+  const found = manifest.has(variant)
+  known.set(variant, found)
+  return found
 }
 
 /**
@@ -230,10 +222,8 @@ export function seasonHasArt(s: Season): boolean | null {
 }
 
 /**
- * `url`, or the seasonal copy to draw instead: the holiday's if it exists,
- * else the quarter's, else `url` itself. The first call for a URL starts a
- * probe and returns `url`; when the probe answers, subscribers re-render
- * (useSeasonArt) and the next call returns the copy.
+ * `url`, or the seasonal copy to draw instead: the holiday's if it is in
+ * the shipped list, else the quarter's, else `url` itself.
  * @param url a .png under public/
  * @param look the holiday and quarter (defaults to the ones in force)
  * @returns the URL to draw
@@ -282,17 +272,23 @@ export function useSeasonArt(): number {
 // Test hooks
 // ---------------------------------------------------------------------------
 
-/** Test hook: pretend a probe already answered. */
+/** Test hook: pretend a probe already answered (overrides the shipped list). */
 export function _setSeasonProbeForTests(url: string, found: boolean) {
   known.set(url, found)
 }
 
-/** Test hook: every URL asked about so far, in order (what a page load would request). */
+/** Test hook: every URL asked about so far, in order. */
 export function _seasonProbesForTests(): string[] {
   return [...known.keys()]
 }
 
-/** Test hook: forget every answer. */
+/** Test hook: forget every answer (the shipped list still applies). */
 export function _resetSeasonProbesForTests() {
+  known.clear()
+}
+
+/** Test hook: pretend a different set of seasonal files is shipped (null restores the real list). */
+export function _setSeasonManifestForTests(files: Iterable<string> | null) {
+  manifest = files ? new Set(files) : SEASON_FILES
   known.clear()
 }

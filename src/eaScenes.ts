@@ -85,6 +85,8 @@ export interface EaEquity extends EaReport {
   /** 'pinned': picked on the wall; 'auto': the newest of the EA being worked on (focus) */
   pick?: 'pinned' | 'auto'
   focus?: string | null
+  /** false: Auto looked and this EA has no report yet (the wall is showing the newest of all) */
+  focusFound?: boolean | null
   /** A newer report waiting out the dwell time */
   held?: { name: string; expert: string | null; at: number } | null
   timeframe?: string | null
@@ -222,6 +224,15 @@ export function equityCaption(eq: Pick<EaEquity, 'expert' | 'name' | 'symbol' | 
   const range = eq.from && eq.to ? `${eq.from}–${eq.to}` : null
   const tf = eq.timeframe ?? (range ? null : eq.period ?? null)
   return [eq.expert ?? eq.name, eq.symbol, tf, range].filter(Boolean).join(' · ')
+}
+
+/** The wall's AUTO / PINNED tag. */
+export function equityPickTag(eq: Pick<EaEquity, 'pick' | 'source' | 'focus' | 'focusFound'>): string {
+  if (eq.pick === 'pinned') return 'PINNED'
+  if (eq.source === 'run') return 'LAST RUN'
+  if (eq.source === 'focus') return `AUTO · ${eq.focus ?? ''}`
+  if (eq.focus && eq.focusFound === false) return `AUTO · newest (no report yet for ${eq.focus})`
+  return 'AUTO · newest'
 }
 
 /** A choice in the wall's picker: "BrooksSetupTesterDAX_v024 · DAX40 · M5 (2013…) · 17:00". */

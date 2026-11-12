@@ -30,7 +30,7 @@
  * nothing here writes a file, runs a program or talks to MT5.
  */
 
-import { readFileSync, readdirSync, statSync } from 'fs'
+import { readFileSync, readdirSync, statSync, existsSync } from 'fs'
 import path from 'path'
 import { payloadTime } from './transcript-source.js'
 import { findWorkbench, readWorkbench as readWorkbenchFiles } from './ea-workbench.js'
@@ -911,6 +911,78 @@ export class EaScenes {
     return f.build.some(b => b.install === folder && r.mtime >= b.since - 1000)
   }
 
+  /** Add this EA's Workbench runs (every tester they used, since each started) to the focus build list. */
+  rememberFocusBuild(wb = this.wb) {
+    const f = this.focus
+    if (!f || !wb?.ok || !Array.isArray(wb.runs)) return
+    if (!Array.isArray(f.build)) f.build = []
+    const have = new Set(f.build.map(b => `${b.install}:${b.since}`))
+    for (const r of wb.runs) {
+      if (!r.install || !r.startedAt) continue
+      if (!(sameStrategy(r.expert, f.expert) || sameStrategy(r.expert, f.key))) continue
+      const k = `${r.install}:${r.startedAt}`
+      if (have.has(k)) continue
+      f.build.push({ install: r.install, since: r.startedAt })
+      have.add(k)
+    }
+  }
+
+  /** The MT5 data folder for a terminal id (Workbench install). */
+  terminalDir(id) {
+    if (!id) return null
+    const cands = []
+    if (this.config.appData) {
+      const sep = isWinPath(this.config.appData) ? '\\' : '/'
+      const root = joinAny(this.config.appData, 'MetaQuotes' + sep + 'Terminal')
+      cands.push(joinAny(root, id))
+    }
+    if (this.config.reportsDir) cands.push(joinAny(this.config.reportsDir, id))
+    for (const d of cands) {
+      try { if (existsSync(d)) return d } catch {}
+    }
+    return cands[0] ?? null
+  }
+
+  /**
+   * Reports of the EA being worked on, looked up more widely than the newest-60 pool:
+   * Workbench run -> report mapping (last case and run name), then those testers' folders,
+   * then a deeper walk of reportsDir for a name match.
+   */
+  gatherFocusReports() {
+    if (!this.focus) return []
+    this.rememberFocusBuild(this.wb)
+    const out = []
+    const seen = new Set()
+    const add = (r) => {
+      if (!r?.path || seen.has(r.path) || !this.isFocusReport(r)) return
+      seen.add(r.path)
+      out.push(r)
+    }
+    const wb = this.wb
+    if (wb?.ok) {
+      if (wb.latest?.report) add(wb.latest.report)
+      for (const run of wb.runs || []) {
+        if (!(sameStrategy(run.expert, this.focus.expert) || sameStrategy(run.expert, this.focus.key))) continue
+        for (const r of run.reports || []) add(r)
+      }
+    }
+    const folders = new Map()
+    for (const b of this.focus.build || []) {
+      if (!b.install) continue
+      const prev = folders.get(b.install)
+      folders.set(b.install, prev == null ? (b.since ?? 0) : Math.min(prev, b.since ?? 0))
+    }
+    for (const [id] of folders) {
+      const dir = this.terminalDir(id)
+      if (dir) for (const r of recentReports(dir, { limit: 40, look: 400 })) add(r)
+    }
+    if (!out.length && this.config.reportsDir) {
+      for (const r of recentReports(this.config.reportsDir, { limit: 40, look: 2500 })) add(r)
+    }
+    out.sort((a, b) => b.mtime - a.mtime)
+    return out
+  }
+
   /**
    * Pick the wall's report: a path from the choices (or the one shown), or null for automatic.
    * @returns {boolean} whether it was accepted
@@ -985,6 +1057,7 @@ export class EaScenes {
     this.wbRunning = ids
     this.wb = wb
     if (wb.newest?.expert && wb.newest.startedAt) this.setFocus(wb.newest.expert, 'workbench', wb.newest.startedAt, wb.newest.build)
+    this.rememberFocusBuild(wb)
     return changed
   }
 
@@ -1044,7 +1117,12 @@ export class EaScenes {
       // The wall's choices: the reports folder's newest, and the Workbench's last result
       // A deeper pool than the picker shows, so the EA being worked on is found even under a busy queue's other reports
       const list = this.config.reportsDir ? recentReports(this.config.reportsDir, { limit: POOL_MAX, look: POOL_MAX * 3 }) : []
-      const extra = [this.wb?.latest?.report, this.equity?.source === 'run' ? readReportCached(this.equity.path) : null, this.pin ? readReportCached(this.pin) : null].filter(Boolean)
+      const extra = [
+        this.wb?.latest?.report,
+        this.equity?.source === 'run' ? readReportCached(this.equity.path) : null,
+        this.pin ? readReportCached(this.pin) : null,
+        ...this.gatherFocusReports(),
+      ].filter(Boolean)
       this.pool = dedupeReports([...list, ...extra], this.wb?.names ?? {})
       // The picker: the newest, plus the shown and the focus EA's newest when they are older
       const top = this.pool.slice(0, CHOICES_MAX)
@@ -1079,7 +1157,11 @@ export class EaScenes {
     return {
       station,
       runs: this.runs.slice(),
-      equity: this.equity ? { ...strip(this.equity), pick: this.pin ? 'pinned' : 'auto', focus: this.focus?.expert ?? null, held: this.held } : null,
+      equity: this.equity ? {
+        ...strip(this.equity), pick: this.pin ? 'pinned' : 'auto', focus: this.focus?.expert ?? null,
+        focusFound: this.focus ? [...this.pool, ...this.choices].some(c => this.isFocusReport(c.report)) : null,
+        held: this.held,
+      } : null,
       equityChoices: this.choices.map(c => ({
         ...(trusted ? { path: c.path } : {}), name: c.report.name, expert: c.report.expert ?? null, symbol: c.report.symbol ?? null,
         period: c.report.period ?? null, mtime: c.report.mtime, netProfit: c.report.netProfit ?? null,
