@@ -201,6 +201,15 @@ function textOf(content) {
   return content.filter(b => b && b.type === 'text' && typeof b.text === 'string').map(b => b.text).join('\n')
 }
 
+/**
+ * When the transcript record behind a rebuilt payload was written (ms), for
+ * taps that need the real time of a tool call (the EA scenes compare a
+ * tester report's mtime with when its run started). Kept beside the payload,
+ * not in it, so the payloads stay exactly the hook's shape.
+ */
+const payloadTimes = new WeakMap()
+export function payloadTime(p) { return payloadTimes.get(p) }
+
 const REJECTED = /doesn't want to proceed with this tool use|tool use was rejected|permission to use .* has been denied/i
 const INTERRUPTED = /^\[Request interrupted by user/
 
@@ -237,6 +246,7 @@ export class TranscriptSession {
 
   base(extra = {}) {
     const p = { session_id: this.sessionId, transcript_path: this.transcriptPath, ...extra }
+    if (this.recordAt) payloadTimes.set(p, this.recordAt)
     if (this.cwd) p.cwd = this.cwd
     if (this.promptId) p.prompt_id = this.promptId
     return p
@@ -262,6 +272,7 @@ export class TranscriptSession {
 
   mainRecord(r, out = []) {
     if (!r || typeof r !== 'object') return out
+    this.recordAt = Date.parse(r.timestamp) || undefined
     if (r.isSidechain && r.agentId) return this.subagentRecord(r.agentId, r, out)
     if (!this.started && (r.type === 'user' || r.type === 'assistant')) {
       if (typeof r.cwd === 'string' && r.cwd) this.cwd = r.cwd
@@ -432,6 +443,7 @@ export class TranscriptSession {
 
   subagentRecord(agentId, r, out = [], transcriptPath) {
     if (!r || typeof r !== 'object') return out
+    this.recordAt = Date.parse(r.timestamp) || undefined
     let s = this.subagents.get(agentId)
     if (!s || !s.started) {
       // Which Agent call launched it: the one whose prompt is the worker's first message

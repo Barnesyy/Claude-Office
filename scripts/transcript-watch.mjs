@@ -22,6 +22,7 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { TranscriptWatcher, resolveTranscriptConfig, createConverter } from '../server/transcript-source.js'
 import { readOfficeConfig, readPort } from '../server/config.js'
+import { isEaRelevant, slimPayload } from '../server/ea-scenes.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
@@ -31,6 +32,8 @@ const value = name => { const i = args.indexOf(name); return i >= 0 ? args[i + 1
 const RUNTIME_DIR = process.env.AGENT_OFFICE_HOME || join(homedir(), '.agent-office')
 const PORT = readPort()
 const EVENT_URL = process.env.AGENT_OFFICE_EVENT_URL || `http://127.0.0.1:${PORT}/event`
+// The EA scenes (server/ea-scenes.js): tool calls about MT5 runs, .mq5 / .set files and tick data
+const EA_URL = process.env.AGENT_OFFICE_EA_URL || EVENT_URL.replace(/\/event$/, '/ea/payload')
 const dryRun = flag('--dry-run')
 const once = flag('--once')
 
@@ -45,10 +48,10 @@ function token() {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-async function post(event) {
+async function post(event, url = EVENT_URL) {
   for (let attempt = 0; attempt < 20; attempt++) {
     try {
-      const res = await fetch(EVENT_URL, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
         body: JSON.stringify(event),
@@ -68,8 +71,27 @@ const sink = dryRun
   ? events => { for (const e of events) process.stdout.write(JSON.stringify(e) + '\n') }
   : async events => { for (const e of events) await post(e) }
 
+// EA payloads go in small batches, in order, on their own queue (POST /ea/payload)
+let eaBatch = []
+let eaChain = Promise.resolve()
+let eaTimer = null
+function flushEa() {
+  eaTimer = null
+  const payloads = eaBatch.splice(0)
+  if (payloads.length) eaChain = eaChain.then(() => post({ type: 'ea_payloads', payloads }, EA_URL))
+  return eaChain
+}
+function onPayload(p) {
+  if (!isEaRelevant(p)) return
+  const slim = slimPayload(p)
+  if (dryRun) { process.stdout.write(JSON.stringify({ ea: slim }) + '\n'); return }
+  eaBatch.push(slim)
+  if (eaBatch.length >= 40) flushEa()
+  else eaTimer ??= setTimeout(flushEa, 250)
+}
+
 const converter = createConverter({ forceJs: flag('--js') })
-const watcher = new TranscriptWatcher({ config, converter, sink, fromStart: flag('--from-start') })
+const watcher = new TranscriptWatcher({ config, converter, sink, fromStart: flag('--from-start'), onPayload })
 
 const pidFile = join(RUNTIME_DIR, 'transcript-watch.pid')
 function cleanup() {
@@ -83,6 +105,7 @@ console.error(`[transcripts] watching ${config.dir} (${converter.kind} converter
 if (once) {
   watcher.tick()
   await watcher.flush()
+  await flushEa()
   // Let the quiet checks see the files settle (turn ends, permission waits)
   await sleep(50)
   cleanup()
@@ -91,6 +114,9 @@ if (once) {
 } else {
   if (!dryRun) { try { mkdirSync(RUNTIME_DIR, { recursive: true }); writeFileSync(pidFile, String(process.pid)) } catch {} }
   watcher.start()
+  // Why: the watcher's poll timer is unref'd (it also runs inside tests); with
+  // the built-in converter nothing else would keep this process alive
+  setInterval(() => {}, 1 << 30)
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGBREAK']) process.on(sig, () => { cleanup(); process.exit(0) })
   process.on('exit', cleanup)
 }
