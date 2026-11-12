@@ -52,8 +52,9 @@ import {
 import { LUNCH_ROOM, SERVER_ROOM } from './roomRules'
 import {
   mainId, isMainAgent, isFreeMain, isHardNeedsYou, needsYouLabel, agentStateFor,
-  completionStats, summarise, projectFromCwd, countRunningTasks,
+  completionStats, summarise, projectFromCwd, countRunningTasks, needsDesk, noDeskLabel,
 } from './mainState'
+export { needsDesk, noDeskLabel } from './mainState'
 import {
   createAgent,
   stepToward,
@@ -330,16 +331,35 @@ export function pickSpot(agents: Agent[], role: string): AgentSpot | null {
 }
 
 /**
- * Where the n-th lobby waiter stands: along the wall either side of the door,
- * never on the doormat itself, so arrivals and leavers can still get past.
+ * The office lounge (src/rooms.ts, spots of type 'lounge'): the first places
+ * anyone without a desk goes, in order, before the wall by the door.
+ */
+export const LOUNGE_SPOTS: readonly AgentSpot[] = MAIN_ROOM.agentSpots.filter(s => s.type === 'lounge')
+
+/**
+ * Where the n-th lobby waiter stands: a lounge seat while one is free, then
+ * along the wall either side of the door, never on the doormat itself, so
+ * arrivals and leavers can still get past.
  */
 export function lobbyPosition(slot: number): Position {
-  const side = slot % 2 === 0 ? -1 : 1
-  const rank = Math.floor(slot / 2)
+  const seat = LOUNGE_SPOTS[slot]
+  if (seat) return { x: seat.x, y: seat.y }
+  const n = slot - LOUNGE_SPOTS.length
+  const side = n % 2 === 0 ? -1 : 1
+  const rank = Math.floor(n / 2)
   return { x: ENTRY.x + side * (3.5 + rank * 2.6), y: ENTRY.y + side * (2.3 + rank * 1.7) }
 }
 
-function freeLobbySlot(state: OfficeState): number {
+/** Which way the n-th lobby waiter faces: its lounge seat's way, else into the room */
+export function lobbyFacing(slot: number): NonNullable<AgentSpot['spriteFacing']> {
+  return LOUNGE_SPOTS[slot]?.spriteFacing ?? 'front-left'
+}
+
+/** How long a Claude must have sat idle at its desk before a busy waiter may take the desk */
+export const DESK_HANDOVER_IDLE_MS = 60_000
+
+
+function freeLobbySlot(state: Pick<OfficeState, 'lobby' | 'meta'>): number {
   const used = new Set<number>()
   for (const id of state.lobby) {
     const slot = state.meta[id]?.lobbySlot
@@ -379,6 +399,29 @@ function hasCorridor(env: OfficeEnv): boolean {
 /** Staff who never leave the office: the boss, and the decorative Claude of ?sim */
 function isPinned(agent: Agent): boolean {
   return agent.id === BOSS_ID || agent.id === CLAUDE_ID
+}
+
+/**
+ * The seated session Claude that has been idle longest (at least
+ * DESK_HANDOVER_IDLE_MS) at an office desk, or -1: the one that gives its desk
+ * to a busy waiter. Never the boss, nobody mid-walk, on a break or visiting.
+ */
+function idleDeskHolder(agents: Agent[], meta: Record<string, AgentMeta>, now: number): number {
+  let best = -1
+  let bestSince = Infinity
+  agents.forEach((a, i) => {
+    if (isPinned(a) || !isMainAgent(a) || needsDesk(a) || a.state !== 'idle' || !a.assignedSpotId) return
+    if (!MAIN_ROOM.agentSpots.some(s => s.id === a.assignedSpotId && s.type === 'desk')) return
+    // At its desk, or idling in the lunch room (its desk stands empty meanwhile)
+    const away = roomOf(a) === LUNCH_ROOM && !!a.visitSpotId
+    if (!away && (a.visitSpotId || !inOffice(a))) return
+    const m = meta[a.id]
+    if (!m || m.transfer || m.onBreak) return
+    const since = m.idleSince ?? m.arrivedAtDeskAt
+    if (since === null || since === undefined || now - since < DESK_HANDOVER_IDLE_MS) return
+    if (since < bestSince) { best = i; bestSince = since }
+  })
+  return best
 }
 
 /**
@@ -551,18 +594,19 @@ function spawnAgent(state: OfficeState, raw: SpawnFields, env: OfficeEnv, announ
   } else {
     const slot = freeLobbySlot(state)
     const pos = lobbyPosition(slot)
-    const base = createAgent({ id, name, role, task, spot: { id: 'lobby', type: 'door', x: pos.x, y: pos.y, spriteFacing: 'front-left' }, hiredAt: env.now })
+    const base = createAgent({ id, name, role, task, spot: { id: 'lobby', type: 'door', x: pos.x, y: pos.y, spriteFacing: lobbyFacing(slot) }, hiredAt: env.now })
+    const label = noDeskLabel({ id, mainState: undefined })
     agent = {
       ...base,
       ...common,
       assignedSpotId: undefined,
       state: 'waiting',
-      statusText: 'waiting for a desk',
+      statusText: raw.statusText ?? label,
       pathQueue: env.computePath(base.position, pos),
     }
     meta = { ...meta, lobbySlot: slot }
     lobby = [...state.lobby, id]
-    effects.push({ kind: 'msg', sender: name, role, color: cfg.color, text: 'waiting for a desk...' })
+    effects.push({ kind: 'msg', sender: name, role, color: cfg.color, text: label === 'in the lounge' ? 'taking a seat in the lounge' : 'waiting for a desk...' })
   }
 
   // Why: with a corridor the building's entrance is its front door, so a
@@ -1850,15 +1894,62 @@ export function stepOffice(state: OfficeState, dt: number, env: OfficeEnv): Step
     }
   }
 
-  // Seat lobby waiters, oldest first, while desks are free (C29)
-  while (lobby.length > 0) {
-    const waiterId = lobby[0]
+  // Seat lobby waiters while desks are free (C29). Those with work to do go
+  // first, oldest first, then the idle ones. With every desk taken, a busy
+  // waiter takes the desk of a session's Claude that has sat idle for
+  // DESK_HANDOVER_IDLE_MS, and that Claude moves to the lounge: with more live
+  // threads than desks, the desks go to the threads that are working.
+  // A session's Claude back in the office with no desk (it gave its desk up
+  // while in the lunch room): to the lounge, in the lobby queue like any waiter
+  for (let i = 0; i < kept.length; i++) {
+    const a = kept[i]
+    if (!isMainAgent(a) || isPinned(a) || a.assignedSpotId || a.visitSpotId) continue
+    if (a.state === 'completed' || a.state === 'waiting' || a.state === 'changing-room' || meta[a.id]?.transfer) continue
+    if (roomOf(a) !== OFFICE_ROOM || lobby.includes(a.id)) continue
+    const slot = freeLobbySlot({ lobby, meta })
+    const pos = lobbyPosition(slot)
+    kept[i] = { ...a, state: 'waiting', deskPosition: pos, targetPosition: pos, spriteFacing: lobbyFacing(slot), pathQueue: env.computePath(a.position, pos) }
+    meta = { ...meta, [a.id]: { ...(meta[a.id] ?? newMeta(now)), lobbySlot: slot, arrivedAtDeskAt: null } }
+    lobby = [...lobby, a.id]
+    changed = true
+  }
+  const stillWaiting = lobby.filter(id => kept.some(a => a.id === id && a.state === 'waiting'))
+  if (stillWaiting.length !== lobby.length) { lobby = stillWaiting; changed = true }
+  const byIdNow = (id: string) => kept.find(a => a.id === id)!
+  const order = [...stillWaiting.filter(id => needsDesk(byIdNow(id))), ...stillWaiting.filter(id => !needsDesk(byIdNow(id)))]
+  for (const waiterId of order) {
     const idx = kept.findIndex(a => a.id === waiterId)
-    if (idx < 0 || kept[idx].state !== 'waiting') { lobby = lobby.slice(1); changed = true; continue }
     // Still coming down the corridor: it is seated once it is in the office
-    if (meta[waiterId]?.transfer) break
-    const spot = pickSpot(kept, kept[idx].role)
-    if (!spot) break
+    if (idx < 0 || meta[waiterId]?.transfer) continue
+    let spot = pickSpot(kept, kept[idx].role)
+    if (!spot && needsDesk(kept[idx])) {
+      const j = idleDeskHolder(kept, meta, now)
+      if (j >= 0) {
+        const holder = kept[j]
+        spot = MAIN_ROOM.agentSpots.find(s => s.id === holder.assignedSpotId) ?? null
+        if (roomOf(holder) !== OFFICE_ROOM) {
+          // Idling in the lunch room: it stays there with no desk; when its
+          // thread is busy again it comes back to the lounge (below)
+          kept[j] = { ...holder, assignedSpotId: undefined, deskPosition: lobbyPosition(0) }
+        } else {
+          const slot = freeLobbySlot({ lobby, meta })
+          const pos = lobbyPosition(slot)
+          kept[j] = {
+            ...holder,
+            state: 'waiting',
+            assignedSpotId: undefined,
+            deskPosition: pos,
+            targetPosition: pos,
+            spriteFacing: lobbyFacing(slot),
+            pathQueue: env.computePath(holder.position, pos),
+          }
+          meta = { ...meta, [holder.id]: { ...(meta[holder.id] ?? newMeta(now)), lobbySlot: slot, arrivedAtDeskAt: null } }
+          lobby = [...lobby, holder.id]
+        }
+        changed = true
+      }
+    }
+    if (!spot) continue
     const desk = { x: spot.x, y: spot.y }
     kept[idx] = {
       ...kept[idx],
@@ -1871,7 +1962,7 @@ export function stepOffice(state: OfficeState, dt: number, env: OfficeEnv): Step
       statusText: isMainAgent(kept[idx]) && kept[idx].mainState !== undefined ? kept[idx].statusText : 'found a desk',
       pathQueue: env.computePath(kept[idx].position, desk),
     }
-    lobby = lobby.slice(1)
+    lobby = lobby.filter(id => id !== waiterId)
     changed = true
   }
 

@@ -6,9 +6,14 @@
  *   lessons binder   on the counter, once something failed and then worked
  *   shipped bin      a parcel per merged PR or deploy (count on the tag)
  *   rooftop garden   the window box: a plant per merged PR
- *   backtest bay,    unlockable furniture: under a dust sheet with a padlock
- *   equity wall,     until earned, then the sheet lifts in a star burst
- *   money tree
+ *   backtest bay     the EA backtest station's crash cart and its run plate
+ *                    (src/components/EaScene.tsx draws the station; the cart
+ *                    stands under the dust sheet until this unlocks)
+ *   equity plate     the demo equity high, on a brass plate under the wall
+ *                    dashboard (the whiteboard's EQ mode is the one equity
+ *                    display: the tester report's balance curve)
+ *   money tree       unlockable furniture: under a dust sheet with a padlock
+ *                    until earned, then the sheet lifts in a star burst
  *
  * Rendered as siblings inside .room-container (a fragment), like
  * IncidentLayer, so each prop keeps its own z-index against furniture and
@@ -22,25 +27,31 @@ import {
   hasNews, isUnlocked, isRevealing, artSize, xpProgress, SPRITES, TROPHY_SPRITES, SHEET_SPRITES, CABINET_SHELVES,
   PLANTER_SLOTS, BIN_PILE, TOAST_MS, REVEAL_MS, type Award, type PanelTab,
 } from '../progression'
+import { STATION_SPOTS } from './EaScene'
 import '../styles/progression.css'
 
 /** Where each prop's foot stands (% of the room) and how tall it is drawn (CSS px, like src/assets.ts heights). */
+// Why these spots: clear of the EA scenes (src/components/EaScene.tsx: the
+// station on the left wall, the tick cabinets along the window), the desks
+// and the lounge (src/rooms.ts). tests/integrate-layout.test.ts checks it.
 export const SPOTS = {
   cabinet: { x: 83.2, y: 67.5 },
   mailbox: { x: 62.4, y: 47.9 },
   binder: { x: 74.4, y: 48.6 },
-  bin: { x: 14.6, y: 67.2 },
-  planter: { x: 17.2, y: 57.4 },
-  'backtest-bay': { x: 47.4, y: 88 },
-  'equity-wall': { x: 39.6, y: 86.2 },
-  'money-tree': { x: 6.8, y: 64.6 },
+  bin: { x: 75.6, y: 74.4 },
+  planter: { x: 32.4, y: 47.0 },
+  // The backtest bay is the EA station's crash cart: its sheet stands where the cart will
+  'backtest-bay': { x: STATION_SPOTS.cart.x, y: STATION_SPOTS.cart.y },
+  // Under the wall dashboard (the room's TV, right of the whiteboard)
+  'equity-wall': { x: 90.8, y: 46.2 },
+  'money-tree': { x: 70.0, y: 81.6 },
 } as const
 
 type UnlockId = 'mailbox' | 'lessons-binder' | 'shipped-bin' | 'rooftop-garden' | 'backtest-bay' | 'equity-wall' | 'money-tree'
 
 const SHEET_FOR: Record<UnlockId, keyof typeof SHEET_SPRITES> = {
   mailbox: 'tall', 'lessons-binder': 'small', 'shipped-bin': 'medium', 'rooftop-garden': 'long',
-  'backtest-bay': 'tall', 'equity-wall': 'medium', 'money-tree': 'medium',
+  'backtest-bay': 'tall', 'equity-wall': 'small', 'money-tree': 'medium',
 }
 
 const SPOT_FOR: Record<UnlockId, { x: number; y: number }> = {
@@ -226,19 +237,24 @@ const ProgressionLayer: React.FC = () => {
         </Prop>
       ))}
 
+      {/* The backtest bay: EaScene draws the cart once this is unlocked; here, its run plate */}
       {cover('backtest-bay', (
-        <Prop spot={SPOTS['backtest-bay']} title={`Backtest bay · ${snap.counts.mt5_run ?? 0} MT5 tester runs, ${snap.counts.walk_forward ?? 0} walk-forward`} onClick={() => openProgressionPanel('trophies')} testId="prog-rack">
-          <Sprite src={SPRITES.rack} height={74} />
-          <span className="prog-leds" aria-hidden="true" />
+        <Prop spot={{ x: SPOTS['backtest-bay'].x, y: SPOTS['backtest-bay'].y + 2.4 }} z={Math.round(SPOTS['backtest-bay'].y) + 2} title={`Backtest bay · ${snap.counts.mt5_run ?? 0} MT5 tester runs, ${snap.counts.walk_forward ?? 0} walk-forward`} onClick={() => openProgressionPanel('trophies')} testId="prog-rack">
+          <span className="prog-plate prog-bay-plate">MT5 {snap.counts.mt5_run ?? 0} · WF {snap.counts.walk_forward ?? 0}</span>
         </Prop>
       ))}
 
-      {cover('equity-wall', (
-        <Prop spot={SPOTS['equity-wall']} title={snap.equity.high !== null ? `Demo equity high: ${snap.equity.high.toFixed(2)} (from your MT5 report)` : 'Equity wall'} onClick={() => openProgressionPanel('trophies')} testId="prog-equity">
-          <Sprite src={SPRITES.equity} height={44} />
-          {snap.equity.high !== null && <span className="prog-tag">{snap.equity.high.toFixed(0)}</span>}
+      {/* The demo equity high: a plate, not a second chart (the whiteboard's EQ mode is the equity display) */}
+      {unlocked('equity-wall') ? (
+        <Prop spot={SPOTS['equity-wall']} title={snap.equity.high !== null ? `Demo equity high: ${snap.equity.high.toFixed(2)} (from your MT5 account report)` : 'Demo equity: no reading yet'} onClick={() => openProgressionPanel('trophies')} testId="prog-equity">
+          <span className="prog-plate prog-equity-plate">DEMO HIGH {snap.equity.high !== null ? Math.round(snap.equity.high).toLocaleString('en-AU') : '—'}</span>
+          {revealing('equity-wall') && <StarBurst />}
         </Prop>
-      ))}
+      ) : (
+        <Prop spot={SPOTS['equity-wall']} title={`Locked: ${unlock('equity-wall')?.title ?? 'Equity wall'}. ${unlock('equity-wall')?.hint ?? ''}`} onClick={() => openProgressionPanel('unlocks')} testId="prog-locked-equity-wall" className="locked">
+          <span className="prog-plate prog-equity-plate locked"><img src={SPRITES.padlock} alt="locked" style={{ height: 7, display: 'inline', verticalAlign: '-1px' }} /> DEMO HIGH</span>
+        </Prop>
+      )}
 
       {cover('money-tree', (
         <Prop spot={SPOTS['money-tree']} title="Money tree (level 5)" testId="prog-money-tree">

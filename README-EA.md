@@ -176,7 +176,9 @@ In the room:
 - lessons binder
 - Shipped bin (a parcel per merged PR or deploy)
 - window-box garden (a plant per merged PR)
-- backtest bay, equity wall and money tree
+- backtest bay: the EA backtest station's crash cart, with an `MT5 runs · WF` plate (see EA scenes)
+- equity wall: a `DEMO HIGH` plate under the wall dashboard, from your MT5 account report
+- money tree (level 5)
 
 Locked furniture stands under a dust sheet with a padlock. On unlock, the sheet lifts with a star burst.
 The four rare unlocks show as `???` until earned.
@@ -186,6 +188,24 @@ and Quarter.
 
 Settings → Progression turns it on or off and resets it (UI token).
 Progression is loopback only: a LAN phone shows none of it.
+
+## One room: how progression and the EA scenes share it
+
+- **One backtest station.** The EA station (rack + crash cart, left wall) is the only one. The rack and its card always show, so a live run is never hidden.
+  With progression on, the cart is the "Backtest bay" unlock: it stands under a dust sheet until your first MT5 tester run, then gets its run-count plate.
+- **One equity display.** The whiteboard's EQ mode (the latest tester report's balance curve). The "Equity wall" unlock adds only a brass `DEMO HIGH` plate under the wall dashboard, from a real demo account report.
+- **Moved to make room:** Shipped bin and money tree to the front right, the window-box garden along the window past the tick cabinets.
+  `tests/integrate-layout.test.ts` checks nothing piles up.
+
+## Desks and the lounge
+
+The office has 10 desks (one is the boss's). Jake often has 12+ live threads plus workers, so:
+
+- **Lounge** (a table and chairs at the front, 8 places): anyone without a desk sits here first, before the wall by the door.
+- A Claude between turns there shows no label (its tooltip says "in the lounge"). Only one that needs a desk says "waiting for a desk".
+- **Desk handover:** a busy waiter (a worker, or a Claude whose thread is working or needs you) takes the desk of the Claude that has been idle longest, after 60 s idle (`DESK_HANDOVER_IDLE_MS`). That Claude moves to the lounge. A Claude idling in the lunch room can give its desk up too, and comes back to the lounge when its thread is busy again.
+- So 16 threads fit with nobody idle queueing. Busy threads beyond 10 desks wait in the lounge until someone goes idle.
+- Tests: `tests/office-lounge.test.ts`.
 
 ## EA scenes
 

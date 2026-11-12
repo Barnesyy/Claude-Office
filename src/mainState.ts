@@ -213,3 +213,18 @@ export function countRunningTasks(tasks: Array<{ status?: string }> | undefined)
   if (!Array.isArray(tasks)) return 0
   return tasks.filter(t => !FINISHED_TASK.test(t?.status ?? '')).length
 }
+
+/**
+ * Whether an agent needs a desk now: a worker always (it is working), a
+ * session's Claude while its main thread is busy. A Claude between turns
+ * (idle, or not heard from yet) is just as well in the lounge.
+ */
+export function needsDesk(a: { id: string; mainState?: MainState }): boolean {
+  if (!isMainAgent(a)) return true
+  return a.mainState !== undefined && a.mainState !== 'idle' && a.mainState !== 'error'
+}
+
+/** The lobby / lounge label of an agent with no desk (Character, the inspector) */
+export function noDeskLabel(a: { id: string; mainState?: MainState }): string {
+  return needsDesk(a) ? 'waiting for a desk' : 'in the lounge'
+}

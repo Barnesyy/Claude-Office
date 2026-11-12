@@ -287,3 +287,17 @@
 .pp-chip.unlock { color: #7cd67a; }
 .pp-chip.level { color: var(--op-accent); }
 .sp-danger { color: #ff5f57 !important; }
+
+/* Plates that stand on their own (the backtest bay's run count under the EA
+   station's cart, the demo equity high under the wall dashboard) */
+.prog-plate.prog-bay-plate,
+.prog-plate.prog-equity-plate {
+  position: relative;
+  left: auto;
+  bottom: auto;
+  display: block;
+  font-size: 6px;
+}
+.prog-plate.prog-bay-plate { transform: skewY(-26.5deg); }
+.prog-plate.prog-equity-plate { transform: skewY(23deg); }
+.prog-plate.prog-equity-plate.locked { opacity: 0.75; filter: grayscale(0.6); }

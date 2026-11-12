@@ -383,7 +383,8 @@ export function planRoomMoves(
   const next = agents.map(agent => {
     const m = nextMeta[agent.id]
     // Why sentTo: the person sent the boss out (he follows the stage); the rules would only walk him home
-    if (!m || m.transfer || m.onBreak || m.sentTo || !agent.assignedSpotId) return agent
+    // Why visitSpotId too: a Claude that gave its desk up while visiting (src/officeReducer.ts) still walks home
+    if (!m || m.transfer || m.onBreak || m.sentTo || (!agent.assignedSpotId && !agent.visitSpotId)) return agent
     if (agent.state !== 'working' && agent.state !== 'idle') return agent
 
     const current = roomOf(agent)

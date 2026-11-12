@@ -29,6 +29,7 @@ import {
   type EaStation, type Lights,
 } from '../eaScenes'
 import type { Agent } from '../types'
+import { useProgression, isUnlocked } from '../progression'
 import '../styles/ea.css'
 
 const MOVE = !(typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
@@ -168,6 +169,11 @@ const EaScene: React.FC<Props> = ({ agents }) => {
   const lights = stationLights(s)
   const cabs = cabinetList(ea.cabinets, CABINET_SPOTS.length)
   const risks = riskByWorker(ea)
+  // With progression on, the crash cart is the "backtest bay" unlock: until it
+  // is earned its dust sheet stands there (ProgressionLayer). The rack and its
+  // card always show, so a live run is never hidden behind a lock.
+  const prog = useProgression().snapshot
+  const cartShown = !prog?.enabled || isUnlocked(prog, 'backtest-bay')
   return (
     <>
       {/* The tick archive */}
@@ -187,9 +193,11 @@ const EaScene: React.FC<Props> = ({ agents }) => {
         <RackLeds lights={lights} />
         <StationCard s={s} />
       </Sprite>
-      <Sprite id="crash-cart" x={STATION_SPOTS.cart.x} y={STATION_SPOTS.cart.y} className="ea-cart">
-        <CartMonitor lights={lights} />
-      </Sprite>
+      {cartShown && (
+        <Sprite id="crash-cart" x={STATION_SPOTS.cart.x} y={STATION_SPOTS.cart.y} className="ea-cart">
+          <CartMonitor lights={lights} />
+        </Sprite>
+      )}
 
       {/* Risk flags over desks */}
       {agents.map(a => {

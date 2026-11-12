@@ -13,7 +13,7 @@ import { getSpritePath, useTheme } from '../theme'
 import { useVariant } from '../incident'
 import { incidentPropFor } from '../incidentAssets'
 import { useWalkFrames, walkFrame } from '../walk'
-import { isMainAgent, isHardNeedsYou, needsYouBadge, needsYouShort } from '../mainState'
+import { isMainAgent, isHardNeedsYou, needsYouBadge, needsYouShort, noDeskLabel } from '../mainState'
 
 export { ROLE_TO_CHAR }
 
@@ -268,7 +268,8 @@ const Character: React.FC<CharacterProps> = ({ agent, idleDurationMs = 0, zIndex
         <div className="char-project">{projectTag}</div>
       )}
 
-      {agent.state === 'waiting' && (
+      {/* Only one that needs a desk says so; the lounge is a fine place to sit between turns */}
+      {agent.state === 'waiting' && noDeskLabel(agent) === 'waiting for a desk' && (
         <div className="char-waiting">waiting for a desk</div>
       )}
 
