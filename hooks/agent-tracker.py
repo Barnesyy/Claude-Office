@@ -1458,9 +1458,9 @@ if hook_event == 'PreToolUse':
     inp = inp if isinstance(inp, dict) else {}
 
     status_map = {
-        'Read':  lambda i: f"reading {str(i.get('file_path') or '').split('/')[-1]}",
-        'Write': lambda i: f"writing {str(i.get('file_path') or '').split('/')[-1]}",
-        'Edit':  lambda i: f"editing {str(i.get('file_path') or '').split('/')[-1]}",
+        'Read':  lambda i: f"reading {re.split(r'[\\/]', str(i.get('file_path') or ''))[-1]}",
+        'Write': lambda i: f"writing {re.split(r'[\\/]', str(i.get('file_path') or ''))[-1]}",
+        'Edit':  lambda i: f"editing {re.split(r'[\\/]', str(i.get('file_path') or ''))[-1]}",
         'Bash':  lambda i: f"running: {str(i.get('command') or i.get('description') or '')[:60]}",
         'Grep':  lambda i: f"searching for '{str(i.get('pattern') or '')[:30]}'",
         'Glob':  lambda i: f"finding files: {str(i.get('pattern') or '')[:40]}",
