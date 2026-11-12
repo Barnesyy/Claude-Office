@@ -75,7 +75,10 @@ function Test-Health {
 
 function Get-Tracked {
   if (-not (Test-Path $PidFile)) { return @() }
-  try { return @(Get-Content -Raw -Path $PidFile | ConvertFrom-Json) } catch { return @() }
+  # Why through a variable: Windows PowerShell 5.1's ConvertFrom-Json emits a JSON
+  # array as ONE object, so @(... | ConvertFrom-Json) would be a one-item array
+  # whose .pid is every pid at once
+  try { $raw = Get-Content -Raw -Path $PidFile | ConvertFrom-Json; return $raw } catch { return @() }
 }
 
 function Test-TrackedAlive($t) {

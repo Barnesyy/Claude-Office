@@ -222,3 +222,43 @@ describe('the registry', () => {
     expect(second.events.some(e => e.type === 'session_needs_you')).toBe(true)
   })
 })
+
+describe('turn ends the desktop app writes', () => {
+  it('a turn that ends on a tool call ends when the registry says idle, or at the Stop hooks summary', async () => {
+    const dir = claudeDir()
+    let now = T0 + 1000
+    writeFileSync(join(dir, 'sessions', '111.json'), JSON.stringify({ pid: 111, sessionId: SID, status: 'busy', name: 'Thread', updatedAt: 5 }))
+    const { w, events } = watcher(dir, () => now)
+    w.tick()
+    const file = join(dir, 'projects', ENC, `${SID}.jsonl`)
+    write(file, [user(0, wake('reply in chat')), tool(100, 'r1', 'mcp__hearthbot__no_reply_needed', {}), result(200, 'r1')])
+    now += 1000; w.tick()
+    now += 10_000; w.tick(); await w.flush()
+    expect(events.some(e => e.type === 'session_turn_end')).toBe(false)
+    writeFileSync(join(dir, 'sessions', '111.json'), JSON.stringify({ pid: 111, sessionId: SID, status: 'idle', name: 'Thread', updatedAt: 6 }))
+    now += 1000; w.tick(); await w.flush()
+    expect(events.filter(e => e.type === 'session_turn_end')).toHaveLength(1)
+
+    const s = new TranscriptSession({ sessionId: SID, transcriptPath: 'x', encodedDir: ENC })
+    const out = s.mainRecords([user(0, 'go'), tool(100, 't', 'Read', { file_path: 'a' }), result(200, 't'), { type: 'system', subtype: 'stop_hook_summary', timestamp: iso(300) }])
+    expect(out.filter(p => p.hook_event_name === 'Stop')).toHaveLength(1)
+  })
+})
+
+describe('old sessions coming back', () => {
+  it('a session quiet at start-up that writes again keeps the title it had', async () => {
+    const dir = claudeDir()
+    const file = join(dir, 'projects', ENC, `${SID}.jsonl`)
+    write(file, [user(0, wake('Rename the threads better')), tool(100, 't', 'Read', { file_path: 'a' }), result(200, 't')])
+    let now = T0 + 3 * 3600_000
+    utimesSync(file, new Date(T0), new Date(T0))
+    const { w, events } = watcher(dir, () => now)
+    w.tick(); await w.flush()
+    expect(events).toEqual([])
+    writeFileSync(file, JSON.stringify(user(3 * 3600_000, '<relay from="coordinator"><note>carry on</note></relay>')) + '\n', { flag: 'a' })
+    now += 1000; w.tick(); await w.flush()
+    const started = events.filter(e => e.type === 'session_started')
+    expect(started.at(-1).title).toBe('Rename the threads better')
+    expect(events.filter(e => e.type === 'session_prompt').map(e => e.text)).toEqual(['relay from coordinator: carry on'])
+  })
+})

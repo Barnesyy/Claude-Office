@@ -26,7 +26,8 @@ function Get-StartKey($proc) { 'ticks:' + $proc.CreationDate.ToUniversalTime().T
 
 if (-not (Test-Path $PidFile)) { Write-Log 'stop: nothing tracked'; return }
 $tracked = @()
-try { $tracked = @(Get-Content -Raw -Path $PidFile | ConvertFrom-Json) } catch { Write-Log 'stop: pid file unreadable, nothing stopped'; return }
+# Through a variable: PowerShell 5.1's ConvertFrom-Json emits a JSON array as one object
+try { $raw = Get-Content -Raw -Path $PidFile | ConvertFrom-Json; $tracked = @($raw) } catch { Write-Log 'stop: pid file unreadable, nothing stopped'; return }
 
 foreach ($t in $tracked) {
   $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($t.pid)" -ErrorAction SilentlyContinue

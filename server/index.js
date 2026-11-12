@@ -1955,6 +1955,11 @@ const registry = mountRegistry(app, {
   broadcast,
   registryDir: REGISTRY_DIR,
   isOwnSession: entry => isBotSession(entry) || outOfFocus(entry),
+  projectOf: entry => {
+    if (!PROJECT_FOCUS?.projects.length || !entry?.cwd) return null
+    const { project, label } = labelFor(entry.cwd, null, PROJECT_FOCUS.projects)
+    return project ? label : null
+  },
   toEvent: sessionEvent,
   endSession,
   forgetSession,

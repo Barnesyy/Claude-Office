@@ -345,7 +345,8 @@ export class TranscriptSession {
       }
       case 'system': {
         if (r.subtype === 'compact_boundary') out.push(this.base({ hook_event_name: 'PostCompact', trigger: r.compactMetadata?.trigger ?? 'auto' }))
-        else if (r.subtype === 'turn_duration' && this.turnOpen && this.pending.size === 0) out.push(this.stop())
+        // turn_duration, or the summary of the Stop hooks that ran: the turn is over
+        else if ((r.subtype === 'turn_duration' || r.subtype === 'stop_hook_summary') && this.turnOpen && this.pending.size === 0) out.push(this.stop())
         return out
       }
       case 'user': return this.userRecord(r, null, out)
@@ -555,7 +556,7 @@ export class TranscriptSession {
    * true / false from Claude Code's registry, or undefined when the session
    * has no registry entry (then the grace periods decide).
    */
-  quietCheck(now, quietMs, { graceMs, bashGraceMs, turnIdleMs, allow = [], defaultMode, registryWaiting } = {}) {
+  quietCheck(now, quietMs, { graceMs, bashGraceMs, turnIdleMs, allow = [], defaultMode, registryWaiting, registryIdle = false } = {}) {
     const out = []
     const mode = this.permissionMode !== 'default' ? this.permissionMode : (defaultMode ?? 'default')
     const candidates = [...this.pending.entries()].filter(([, c]) => !c.raised && c.name !== 'Agent' && c.name !== 'Task')
@@ -572,7 +573,10 @@ export class TranscriptSession {
         permission_mode: mode, ...(c.agentId ? { agent_id: c.agentId, agent_type: c.agentType } : {}) }))
       break  // one dialog at a time
     }
-    if (this.turnOpen && this.lastKind === 'text' && this.pending.size === 0 && turnIdleMs > 0 && quietMs >= turnIdleMs) out.push(this.stop())
+    if (this.turnOpen && this.pending.size === 0 && turnIdleMs > 0 && quietMs >= turnIdleMs &&
+      // A text-only reply that went quiet; or Claude Code itself says idle (the
+      // desktop app often ends a turn on a tool call, e.g. a chat reply tool)
+      (this.lastKind === 'text' || registryIdle)) out.push(this.stop())
     return out
   }
 }
@@ -880,7 +884,9 @@ export class TranscriptWatcher {
         // New files are read whole; at start-up only recently active ones are
         // (to rebuild their current turn), unless replaying everything
         const offset = this.fromStart || fresh || recent ? 0 : st.size
-        entry = { ...f, offset, rest: '', lastGrowth: fresh ? now : st.mtimeMs, wasOld: offset > 0, catchUp: !this.fromStart && !fresh && recent }
+        entry = { ...f, offset, rest: '', lastGrowth: fresh ? now : st.mtimeMs, wasOld: offset > 0, catchUp: !this.fromStart && !fresh && recent,
+          // What was there before the watcher looked, learnt (title, model, cwd) when the session next writes
+          learnTo: offset }
         this.files.set(f.path, entry)
       }
       if (st.size > entry.offset) {
@@ -940,6 +946,7 @@ export class TranscriptWatcher {
     for (const r of records) { const t = Date.parse(r?.timestamp); if (Number.isFinite(t) && t > lastT) lastT = t }
     const stale = !(now - lastT <= this.config.activeWindowMs)
     entry.wasOld = true
+    entry.learnTo = 0
     if (entry.kind === 'main') {
       if (stale) {
         s.mainRecords(records, [])
@@ -972,6 +979,18 @@ export class TranscriptWatcher {
     const out = []
     if (entry.kind === 'main') {
       {
+        if (entry.learnTo > 0) {
+          // An old session writing again: learn its title, model and cwd from
+          // what it wrote before the watcher looked (silently; its tail only)
+          const from = Math.max(0, entry.learnTo - CATCH_UP_MAX_BYTES)
+          const { text } = readFrom(entry.path, from, entry.learnTo - from)
+          const head = splitLines('', text).records
+          if (!s.cwd) { const c = head.find(r => typeof r?.cwd === 'string' && r.cwd); if (c) { s.cwd = c.cwd; s.noteCwd(c.cwd) } }
+          s.mainRecords(head, [])
+          s.pending.clear(); s.batches.clear(); s.turnOpen = false; s.started = false
+          for (const sub of s.subagents.values()) sub.done = true
+          entry.learnTo = 0
+        }
         // A session that was quiet when the watcher started (or had ended) is resuming
         if ((!s.started && entry.wasOld) || s.ended) {
           const c = records.find(r => typeof r?.cwd === 'string' && r.cwd)
@@ -1011,7 +1030,7 @@ export class TranscriptWatcher {
       }
       out.push(...s.quietCheck(now, quietMs, {
         graceMs: this.config.permissionGraceMs, bashGraceMs: this.config.bashPermissionGraceMs, turnIdleMs: this.config.turnIdleMs,
-        allow, defaultMode, registryWaiting: status === undefined ? undefined : status === 'waiting',
+        allow, defaultMode, registryWaiting: status === undefined ? undefined : status === 'waiting', registryIdle: status === 'idle',
       }))
       if (quietMs >= this.config.idleEndMs && this.config.idleEndMs > 0 && s.pending.size === 0 && status === undefined) {
         s.ended = true
