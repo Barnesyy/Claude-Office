@@ -125,7 +125,8 @@ const SessionStrip: React.FC<SessionStripProps> = ({ sessions, agents }) => {
         const label = pillLabel(session)
         // Why: a titled session hides its project label, so it keeps a chip; a label that
         // already says the sub folder ("EA Dev · School Run") drops the group the heading shows
-        const chip = session.title && session.project ? group || session.project : null
+        const sub = session.project && group && session.project.startsWith(`${group} · `) ? session.project.slice(group.length + 3) : null
+        const chip = session.title && session.project ? (grouped ? sub : session.project) : null
         const shown = !session.title && grouped && label.startsWith(`${group} · `) ? label.slice(group.length + 3) : label
 
         return (

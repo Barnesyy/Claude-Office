@@ -13,7 +13,8 @@
  *
  * Settings: the `transcripts` block of office.config.json (see README-EA.md).
  * Environment: AGENT_OFFICE_PORT, AGENT_OFFICE_HOME (token + pid file),
- * AGENT_OFFICE_TRANSCRIPTS_DIR, CLAUDE_CONFIG_DIR, AGENT_OFFICE_PYTHON.
+ * AGENT_OFFICE_TRANSCRIPTS_DIR, CLAUDE_CONFIG_DIR, AGENT_OFFICE_PYTHON,
+ * AGENT_OFFICE_CONFIG_DIR (where office.config.json is, as for the server).
  */
 import { readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
@@ -33,7 +34,7 @@ const EVENT_URL = process.env.AGENT_OFFICE_EVENT_URL || `http://127.0.0.1:${PORT
 const dryRun = flag('--dry-run')
 const once = flag('--once')
 
-const officeConfig = readOfficeConfig(value('--config-dir') || ROOT)
+const officeConfig = readOfficeConfig(value('--config-dir') || process.env.AGENT_OFFICE_CONFIG_DIR || ROOT)
 const config = resolveTranscriptConfig(officeConfig)
 if (value('--dir')) config.dir = value('--dir')
 if (flag('--all-projects')) config.onlyListed = false
