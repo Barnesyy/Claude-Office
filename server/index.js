@@ -3089,13 +3089,17 @@ app.post('/chat/typing', (req, res) => {
 // ---------------------------------------------------------------------------
 
 const cronStatePath = join(RUNTIME_DIR, 'chat-poll-state')
+// EA fork: the chat AI (`claude -p`) is opt-in. Read at start like the other knobs.
+const CHAT_AI_ON = process.env.AGENT_OFFICE_CHAT_AI === '1'
 
 app.get('/chat/cron-state', (_req, res) => {
   try {
     const data = readFileSync(cronStatePath, 'utf8')
     res.json(JSON.parse(data))
   } catch {
-    res.json({ paused: false, consecutive_idle_count: 0, last_seen_timestamp: 0 })
+    // EA fork: the chat AI is opt-in (AGENT_OFFICE_CHAT_AI=1), so with no
+    // state file yet it reads as off
+    res.json({ paused: !CHAT_AI_ON, consecutive_idle_count: 0, last_seen_timestamp: 0 })
   }
 })
 

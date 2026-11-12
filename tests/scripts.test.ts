@@ -124,7 +124,8 @@ interface WatcherWorld {
  * `delay` makes every `claude -p` take that many seconds.
  */
 async function startWatcher(opts: { maxPerMinute?: number; staleLock?: boolean; lastTs?: string; delay?: number } = {}): Promise<WatcherWorld> {
-  const office = await loadOffice()
+  // EA fork: the chat AI is opt-in, so these offices turn it on
+  const office = await loadOffice({ env: { AGENT_OFFICE_CHAT_AI: '1' } })
   const port = await listen(office.server.httpServer)
   // What start() writes once the port is bound: the watcher reads it to post as an agent
   writeFileSync(join(office.dir, 'auth-token'), office.server.AUTH_TOKEN, { mode: 0o600 })
@@ -590,6 +591,9 @@ describe('start-office.sh', () => {
       PATH: `${bin}:${process.env.PATH}`,
       OPEN_LOG: openLog,
       CHAT_AI_POLL_INTERVAL: '0.2',
+      // EA fork: the chat AI is opt-in, the transcript watcher on by default
+      AGENT_OFFICE_CHAT_AI: '1',
+      AGENT_OFFICE_SOURCE: 'hooks',
     }, false)
 
     await waitFor('the running banner', () => proc.out.includes('Agent Office is running!'), 10_000)

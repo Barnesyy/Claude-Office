@@ -198,22 +198,42 @@ else
     done
 fi
 
-# Start chat AI watcher in background (stop a stale one first)
-stop_stale_watcher
-echo -e "${CYAN}[...]${RESET} Starting chat AI watcher (log: $CHAT_AI_LOG)..."
-spawn bash "$PROJECT_DIR/scripts/chat-ai-watcher.sh" >> "$CHAT_AI_LOG" 2>&1
-WATCHER_PID=$SPAWNED_PID
-STARTED_PIDS="$STARTED_PIDS $WATCHER_PID"
-STARTED_PID_FILES="$STARTED_PID_FILES $WATCHER_PID_FILE"
-# The watcher writes its own pid file; give a loaded machine a few seconds
-for i in {1..30}; do
-    [ -f "$WATCHER_PID_FILE" ] && break
-    sleep 0.1
-done
-if [ -f "$WATCHER_PID_FILE" ]; then
-    echo -e "${GREEN}[ok]${RESET} Chat AI watcher ready (PID: $(cat "$WATCHER_PID_FILE"))"
+# Hookless data source (the default): tail Claude Code's transcripts and feed
+# the office the events the hooks would send. AGENT_OFFICE_SOURCE=hooks skips
+# it (hook mode: `npm run install-hooks` once, by hand). It writes its own pid
+# file, transcript-watch.pid, which stop-office.sh reads.
+TRANSCRIPT_PID_FILE="$RUNTIME_DIR/transcript-watch.pid"
+if [ "${AGENT_OFFICE_SOURCE:-transcripts}" != "hooks" ]; then
+    echo -e "${CYAN}[...]${RESET} Starting transcript watcher (log: $RUNTIME_DIR/transcript-watch.log)..."
+    spawn node "$PROJECT_DIR/scripts/transcript-watch.mjs" >> "$RUNTIME_DIR/transcript-watch.log" 2>&1
+    STARTED_PIDS="$STARTED_PIDS $SPAWNED_PID"
+    STARTED_PID_FILES="$STARTED_PID_FILES $TRANSCRIPT_PID_FILE"
+    echo -e "${GREEN}[ok]${RESET} Transcript watcher started (PID: $SPAWNED_PID)"
 else
-    echo -e "${YELLOW}[warn]${RESET} Chat AI watcher may not have started (see $CHAT_AI_LOG)"
+    echo -e "${CYAN}[info]${RESET} AGENT_OFFICE_SOURCE=hooks: no transcript watcher (the hooks feed the office)"
+fi
+
+# The chat AI (`claude -p` per reply) is opt-in: AGENT_OFFICE_CHAT_AI=1
+if [ "${AGENT_OFFICE_CHAT_AI:-0}" = "1" ]; then
+    # Start chat AI watcher in background (stop a stale one first)
+    stop_stale_watcher
+    echo -e "${CYAN}[...]${RESET} Starting chat AI watcher (log: $CHAT_AI_LOG)..."
+    spawn bash "$PROJECT_DIR/scripts/chat-ai-watcher.sh" >> "$CHAT_AI_LOG" 2>&1
+    WATCHER_PID=$SPAWNED_PID
+    STARTED_PIDS="$STARTED_PIDS $WATCHER_PID"
+    STARTED_PID_FILES="$STARTED_PID_FILES $WATCHER_PID_FILE"
+    # The watcher writes its own pid file; give a loaded machine a few seconds
+    for i in {1..30}; do
+        [ -f "$WATCHER_PID_FILE" ] && break
+        sleep 0.1
+    done
+    if [ -f "$WATCHER_PID_FILE" ]; then
+        echo -e "${GREEN}[ok]${RESET} Chat AI watcher ready (PID: $(cat "$WATCHER_PID_FILE"))"
+    else
+        echo -e "${YELLOW}[warn]${RESET} Chat AI watcher may not have started (see $CHAT_AI_LOG)"
+    fi
+else
+    echo -e "${CYAN}[info]${RESET} Chat AI is off (AGENT_OFFICE_CHAT_AI=1 turns on the claude -p replies)"
 fi
 
 # Open in browser, with the office token (the bare address when there is no
@@ -227,7 +247,7 @@ echo ""
 echo -e "${GREEN}Agent Office is running!${RESET}"
 echo "  Office: $UI_URL  (another browser: npm run open)"
 echo "  Server: http://127.0.0.1:$SERVER_PORT"
-echo "  Chat AI: toggle on/off from the UI"
+echo "  Chat AI: ${AGENT_OFFICE_CHAT_AI:-0} (1 = on; toggle from the UI once running)"
 echo ""
 echo "Press Ctrl+C to stop all services"
 

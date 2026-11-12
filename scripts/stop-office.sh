@@ -4,6 +4,7 @@
 #
 # Reads the pid files written under $AGENT_OFFICE_HOME (~/.agent-office):
 #   chat-watcher.pid   chat AI watcher (written by chat-ai-watcher.sh)
+#   transcript-watch.pid  transcript watcher (written by transcript-watch.mjs)
 #   server.pid         WebSocket/HTTP server (written by start-office.sh)
 #   vite.pid           Vite dev server     (written by start-office.sh)
 #
@@ -138,6 +139,7 @@ force_stop_port() {
 
 # 1. Chat watcher
 stop_pidfile "Chat watcher" "$RUNTIME_DIR/chat-watcher.pid" 'chat-(ai-)?watcher\.sh'
+stop_pidfile "Transcript watcher" "$RUNTIME_DIR/transcript-watch.pid" 'transcript-watch\.mjs'
 
 # 2. Server
 stop_pidfile "Server" "$RUNTIME_DIR/server.pid" '(^|/| )node( |$)|server/index\.js'

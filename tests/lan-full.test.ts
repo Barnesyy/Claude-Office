@@ -578,7 +578,7 @@ describe('the full-mode listener', () => {
     expect((await phone('post', '/settings').send({ notifyPermissions: 'no' })).status).toBe(400)
     expect((await phone('post', '/settings').send({ notifyPermissions: true })).status).toBe(200)
 
-    expect((await phone('get', '/chat/cron-state')).body).toMatchObject({ paused: false })
+    expect((await phone('get', '/chat/cron-state')).body).toMatchObject({ paused: true })  // EA fork: chat AI off until AGENT_OFFICE_CHAT_AI=1
     expect((await phone('post', '/chat/cron-state').send({ paused: true })).body).toEqual({ ok: true, paused: true })
     expect((await phone('get', '/chat/cron-state')).body).toMatchObject({ paused: true })
     expect((await phone('post', '/chat/cron-state').send({ paused: false })).body).toEqual({ ok: true, paused: false })
