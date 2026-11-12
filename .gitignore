@@ -5,6 +5,8 @@ release/
 .env.*
 /tmp/
 *.log
+# MetaEditor compile logs the EA scenes tests read
+!tests/fixtures/ea/files/*.log
 .DS_Store
 remotion/
 office.config.json
