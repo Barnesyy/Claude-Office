@@ -17,6 +17,11 @@
  * labelled with its registry name; its dot follows the registry status (busy,
  * shell, idle, waiting — the word is the dot's tooltip) and the pill's tooltip
  * says how to hook it. It has no Claude in the office.
+ *
+ * Project focus (EA fork): the transcript watcher labels a session
+ * "<project> · <sub folder>" (office.config.json `transcripts`). Pills are
+ * grouped by the part before " · ", one small heading per group once there
+ * is more than one, and a titled session keeps a chip with its project.
  */
 
 import React, { useEffect, useState } from 'react'
@@ -28,7 +33,7 @@ import { mainId, isMainAgent, mainTone, mainPillText, shortModel, projectFromCwd
 const BUSY_WINDOW_MS = 10_000
 
 /** The first line of an unhooked pill's tooltip: how to see what the session is doing */
-export const NOT_HOOKED_HINT = 'Not hooked — run `npm run install-hooks` (or /plugin install agent-office) to see what it is doing'
+export const NOT_HOOKED_HINT = 'Not seen yet — the transcript watcher (scripts/transcript-watch.mjs, started by start-office) shows what it is doing; or opt in to hooks with `npm run install-hooks`'
 
 interface SessionStripProps {
   sessions: SessionInfo[]
@@ -40,6 +45,13 @@ export function pillLabel(session: SessionInfo): string {
   if (session.title) return session.title
   if (session.hooked === false) return session.registry?.name ?? session.project ?? projectFromCwd(session.cwd) ?? session.id.slice(0, 8)
   return session.project ?? session.id.slice(0, 8)
+}
+
+/** The project group of a session: its label up to " · " ("EA Dev · School Run" -> "EA Dev") */
+export function projectGroup(session: SessionInfo): string {
+  const label = session.project ?? projectFromCwd(session.cwd) ?? ''
+  const cut = label.indexOf(' · ')
+  return cut >= 0 ? label.slice(0, cut) : label
 }
 
 function describe(session: SessionInfo, claude: Agent | undefined, workerCount: number, workingCount: number): string {
@@ -75,12 +87,23 @@ const SessionStrip: React.FC<SessionStripProps> = ({ sessions, agents }) => {
 
   if (sessions.length === 0) return null
 
+  // Why the group's first start: groups keep their place as sessions come and go
+  const groupStart = new Map<string, number>()
+  for (const s of sessions) {
+    const g = projectGroup(s)
+    groupStart.set(g, Math.min(groupStart.get(g) ?? Infinity, s.startedAt ?? 0))
+  }
   const ordered = [...sessions].sort((a, b) =>
+    (groupStart.get(projectGroup(a))! - groupStart.get(projectGroup(b))!) ||
+    projectGroup(a).localeCompare(projectGroup(b)) ||
     (a.state === 'ended' ? 1 : 0) - (b.state === 'ended' ? 1 : 0) || (a.startedAt ?? 0) - (b.startedAt ?? 0))
+  const grouped = groupStart.size > 1
 
   return (
     <div className="session-strip" aria-label="Claude Code sessions">
-      {ordered.map(session => {
+      {ordered.map((session, i) => {
+        const group = projectGroup(session)
+        const heading = grouped && group && (i === 0 || projectGroup(ordered[i - 1]) !== group)
         const unhooked = session.hooked === false
         const claude = agents.find(a => a.id === mainId(session.id) && a.state !== 'completed')
         const mine = agents.filter(a => a.sessionId === session.id && a.state !== 'completed' && !isMainAgent(a))
@@ -99,9 +122,16 @@ const SessionStrip: React.FC<SessionStripProps> = ({ sessions, agents }) => {
         const model = shortModel(session.model ?? claude?.model)
         const registryStatus = session.registry?.status
 
+        const label = pillLabel(session)
+        // Why: a titled session hides its project label, so it keeps a chip; a label that
+        // already says the sub folder ("EA Dev · School Run") drops the group the heading shows
+        const chip = session.title && session.project ? group || session.project : null
+        const shown = !session.title && grouped && label.startsWith(`${group} · `) ? label.slice(group.length + 3) : label
+
         return (
+          <React.Fragment key={session.id}>
+          {heading && <span className="session-group" data-project={group} title={`project: ${group}`}>{group}</span>}
           <div
-            key={session.id}
             className={`session-pill ${tone}${unhooked ? ' unhooked' : ''}`}
             title={describe(session, claude, mine.length, working.length)}
             data-session-id={session.id}
@@ -109,13 +139,15 @@ const SessionStrip: React.FC<SessionStripProps> = ({ sessions, agents }) => {
             data-hooked={unhooked ? 'false' : 'true'}
           >
             <span className={`session-dot ${tone}`} title={unhooked && registryStatus ? registryStatus : undefined} />
-            <span className="session-pill-project">{pillLabel(session)}</span>
+            {chip && <span className="session-pill-chip" title={`project: ${session.project}`}>{chip}</span>}
+            <span className="session-pill-project">{shown}</span>
             {model && <span className="session-pill-model" title={`model: ${session.model ?? claude?.model}`}>{model}</span>}
             {unhooked
               ? <span className="session-pill-unhooked" title={NOT_HOOKED_HINT}>not hooked</span>
               : <span className="session-pill-count" title={`${mine.length} worker${mine.length === 1 ? '' : 's'}`}>{mine.length}</span>}
             {stateText && <span className={`session-pill-state ${tone}`}>{stateText}</span>}
           </div>
+          </React.Fragment>
         )
       })}
     </div>

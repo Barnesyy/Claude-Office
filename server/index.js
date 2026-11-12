@@ -33,7 +33,8 @@ import { dirname } from 'path'
 import { addMessage, getMessages, markSeen, addReaction, markInboxRead } from './chat-db.js'
 import db from './chat-db.js'
 import { mountStatus } from './status.js'
-import { mountRegistry } from './sessions.js'
+import { mountRegistry, isBotSession } from './sessions.js'
+import { resolveTranscriptConfig, labelFor } from './transcript-source.js'
 import { mountTasks } from './tasks.js'
 import { mountPermissions, sanitiseSuggestions, redactPermission } from './permissions.js'
 import { createPermissionNotifier } from './permission-notify.js'
@@ -1936,10 +1937,21 @@ const health = mountHealth(app, { broadcast, uiAvailable: UI_AVAILABLE, prove: c
 // adds the sessions nothing has hooks for, and ends them when their process
 // goes. Nothing is read until start() — importing the module stays side-effect
 // free and the tests point AGENT_OFFICE_REGISTRY_DIR at a temp dir.
+// Project focus (office.config.json `transcripts.preset` / `projects` with
+// `onlyListed`): a registry session outside the listed projects is left out of
+// the strip, like the office's own bot, so the EA preset shows EA sessions only.
+// Read once at start; the transcript watcher applies the same filter to events.
+const PROJECT_FOCUS = (() => {
+  try { return resolveTranscriptConfig(loadOfficeConfig(CONFIG_DIR, { warn() {}, log() {}, error() {} }).config) } catch { return null }
+})()
+const outOfFocus = entry => !!PROJECT_FOCUS?.onlyListed && PROJECT_FOCUS.projects.length > 0 &&
+  labelFor(entry?.cwd ?? '', null, PROJECT_FOCUS.projects).project === null
+
 const registry = mountRegistry(app, {
   sessions,
   broadcast,
   registryDir: REGISTRY_DIR,
+  isOwnSession: entry => isBotSession(entry) || outOfFocus(entry),
   toEvent: sessionEvent,
   endSession,
   forgetSession,

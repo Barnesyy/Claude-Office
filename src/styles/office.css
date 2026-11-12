@@ -163,6 +163,30 @@
   text-overflow: ellipsis;
 }
 
+.session-group {
+  align-self: center;
+  padding: 0 2px 0 6px;
+  color: #a08a60;
+  font-size: 7px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.session-group:first-child { padding-left: 0; }
+
+.session-pill-chip {
+  max-width: 70px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: rgba(160, 138, 96, 0.18);
+  color: #c9b48a;
+  font-size: 7px;
+  line-height: 11px;
+  white-space: nowrap;
+}
+
 .session-pill-count {
   padding: 0 4px;
   border-radius: 6px;

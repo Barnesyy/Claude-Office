@@ -1,0 +1,15 @@
+{
+  "boss": {
+    "name": "Jake",
+    "sprite": "Me-1",
+    "color": "#28c840",
+    "emoji": "crown"
+  },
+  "transcripts": {
+    "preset": "ea-development",
+    "activeWindowMinutes": 20,
+    "idleEndMinutes": 45,
+    "permissionGraceSeconds": 6,
+    "bashPermissionGraceSeconds": 15
+  }
+}
