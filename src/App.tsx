@@ -51,8 +51,11 @@ import {
   useVariant, getIncident, pinIncidentFromUrl, failureToolFromStatus, signalIncidentInput,
 } from './incident'
 import IncidentLayer from './components/IncidentLayer'
-import TaskBoard from './components/TaskBoard'
 import { dispatchTaskBoards } from './taskBoard'
+import { dispatchEa, eaScreenPairs, useEa } from './eaScenes'
+import EaScene from './components/EaScene'
+import WallBoard from './components/WallBoard'
+import CommandCentre from './components/CommandCentre'
 import RoomBackdrop from './components/RoomBackdrop'
 import RoomSwitcher from './components/RoomSwitcher'
 import DoorLinks from './components/DoorLinks'
@@ -364,6 +367,9 @@ const App: React.FC = () => {
   useEffect(() => { saveDayNightMode(dayNightMode) }, [dayNightMode])
   // The Settings panel (the gear in the title bar)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // The Command Centre (title bar CMD): sessions by Needs you / Working / Done / Ended
+  // (?centre opens it on load, like ?screens= previews the desks)
+  const [centreOpen, setCentreOpen] = useState(() => new URLSearchParams(location.search).has('centre'))
   const gearRef = useRef<HTMLButtonElement>(null)
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
 
@@ -805,6 +811,11 @@ const App: React.FC = () => {
     // The sessions' task lists (server/tasks.js): the kanban board's own store (src/taskBoard.ts)
     if (action.type === 'task_board') {
       dispatchTaskBoards(action)
+      return
+    }
+    // The EA scenes (server/ea-scenes.js): their own store (src/eaScenes.ts)
+    if (action.type === 'ea_state') {
+      dispatchEa(action)
       return
     }
 
@@ -1537,7 +1548,10 @@ const App: React.FC = () => {
   // another room at the same percent of its picture is not at a desk or the
   // cooler here. The same array as `agents` while the office is the only room.
   const officeAgents = ROOMS_IN_USE ? agents.filter(a => roomOf(a) === OFFICE_ROOM) : agents
-  const deskScreensKey = JSON.stringify(previewScreens(PREVIEW_DESKS) ?? deskScreens(officeAgents, typingAgents))
+  // The EA scenes (src/eaScenes.ts): MetaEditor / DAX / tester screens for workers on .mq5 / .set files
+  const ea = useEa()
+  const eaScreens = useMemo(() => eaScreenPairs(ea), [ea])
+  const deskScreensKey = JSON.stringify(previewScreens(PREVIEW_DESKS) ?? deskScreens(officeAgents, typingAgents, eaScreens))
   const deskScreenModes = useMemo(() => JSON.parse(deskScreensKey) as Record<string, DeskScreen>, [deskScreensKey])
   // The room's props (src/roomLife.ts): the filing cabinet opens while an agent reads files
   const filesOpen = filingOpen(officeAgents)
@@ -1641,8 +1655,11 @@ const App: React.FC = () => {
           {/* Another room's furniture: drawn as listed in src/rooms.ts (nothing in it is clickable yet) */}
           {!officeInView && <FurnitureRenderer items={ROOMS[viewRoom].furniture} />}
 
-          {/* The session's real task list on the kanban whiteboard (nothing drawn while no session has tasks) */}
-          {officeInView && <TaskBoard sessions={sessions} night={forcedNight ? 1 : dayNightMode === 'auto' ? nightOpacity : dayNightMode === 'night' ? 1 : 0} onActivate={() => handleFurnitureClick('kanban-board')} />}
+          {/* The whiteboard: to-do, the kanban of the sessions' real task lists, the balance curve, the EA ticker (WallBoard cycles them) */}
+          {officeInView && <WallBoard sessions={sessions} night={forcedNight ? 1 : dayNightMode === 'auto' ? nightOpacity : dayNightMode === 'night' ? 1 : 0} onActivate={() => handleFurnitureClick('kanban-board')} />}
+
+          {/* The EA scenes: backtest station, tick archive, risk flags (src/eaScenes.ts) */}
+          {officeInView && <EaScene agents={officeAgents} />}
 
           {/* Agents: the ones in the room on the stage */}
           {agents.filter(agent => roomOf(agent) === viewRoom).map(agent => {
@@ -1778,6 +1795,16 @@ const App: React.FC = () => {
         </button>
         <span className="title-bar-phase">{getPhaseLabel(effectivePhase)}</span>
         <button
+          type="button"
+          className="title-bar-daynight"
+          onClick={() => setCentreOpen(o => !o)}
+          aria-expanded={centreOpen}
+          title="Command Centre: every session by Needs you / Working / Done / Ended"
+          data-testid="command-centre-toggle"
+        >
+          CMD
+        </button>
+        <button
           ref={gearRef}
           type="button"
           className={`title-bar-gear${settingsOpen ? ' open' : ''}`}
@@ -1808,6 +1835,14 @@ const App: React.FC = () => {
         />
       )}
 
+      {centreOpen && (
+        <CommandCentre
+          sessions={sessions}
+          agents={agents}
+          onClose={() => setCentreOpen(false)}
+          onPick={id => { setInspectedId(`main-${id}`); setCentreOpen(false) }}
+        />
+      )}
       <div className="app-body">
       <div className={`office-view${ROOMS_IN_USE ? ' has-rooms' : ''}`}>
         {scene}

@@ -19,6 +19,8 @@ import type { Agent } from './types'
 export type ScreenKind =
   | 'code' | 'terminal' | 'web' | 'tests' | 'diff' | 'pipeline' | 'chart'
   | 'data' | 'chat' | 'search' | 'debug' | 'mail' | 'security'
+  // The EA scenes (src/eaScenes.ts): MetaEditor, a DAX40 M15 chart, the MT5 strategy tester
+  | 'mql' | 'dax' | 'tester'
 
 /** One monitor: off, the desk art's own lit screen (idle), the bug, or a busy kind. */
 export type ScreenMode = 'off' | 'idle' | 'bug' | ScreenKind
@@ -102,27 +104,29 @@ const OFF: DeskScreen = ['off', 'off']
  * The two monitors of a desk worked at by `agent`.
  * @param agent the worker at the desk, or undefined for an empty desk
  * @param typing whether the office shows it typing right now
+ * @param ea the EA pair this worker has up instead of its role's (it touched a .mq5 / .set, or runs the tester)
  */
-export function screenMode(agent: Agent | undefined, typing = false): DeskScreen {
+export function screenMode(agent: Agent | undefined, typing = false, ea?: readonly [ScreenKind, ScreenKind]): DeskScreen {
   if (!agent || !atDesk(agent)) return OFF
   // Why bug first: a failure is the one thing worth looking up for
   if (agent.lastFailed || agent.scene?.kind === 'red' || agent.mainState === 'error') return ['bug', 'bug']
   const busy = typing || agent.state === 'working'
-  return busy ? roleScreens(agent.role) : ['idle', 'idle']
+  return busy ? ea ?? roleScreens(agent.role) : ['idle', 'idle']
 }
 
 /**
  * The monitors of every desk, by desk id; desks nobody is at are off.
  * @param agents the room's agents
  * @param typing ids the office shows typing
+ * @param ea EA screen pairs by agent id (src/eaScenes.ts eaScreenPairs)
  */
-export function deskScreens(agents: readonly Agent[], typing: ReadonlySet<string> = new Set()): Record<string, DeskScreen> {
+export function deskScreens(agents: readonly Agent[], typing: ReadonlySet<string> = new Set(), ea: Readonly<Record<string, readonly [ScreenKind, ScreenKind]>> = {}): Record<string, DeskScreen> {
   const out: Record<string, DeskScreen> = {}
   for (const desk of Object.values(SPOT_DESK)) out[desk] = OFF
   for (const a of agents) {
     const desk = a.assignedSpotId ? SPOT_DESK[a.assignedSpotId] : undefined
     if (!desk) continue
-    const screens = screenMode(a, typing.has(a.id))
+    const screens = screenMode(a, typing.has(a.id), ea[a.id])
     // Why keep lit screens: someone walking past a desk must not switch off its worker's
     if (screens[0] !== 'off') out[desk] = screens
   }
@@ -182,7 +186,7 @@ export const DESK_GEOMETRY: Readonly<Record<string, DeskGeometry>> = {
   'desk-standing-right-rear': { w: 576, h: 704, screens: [], glow: { cx: 240, cy: 165, rx: 210, ry: 140 } },
 }
 
-const KINDS: readonly ScreenKind[] = ['code', 'terminal', 'web', 'tests', 'diff', 'pipeline', 'chart', 'data', 'chat', 'search', 'debug', 'mail', 'security']
+const KINDS: readonly ScreenKind[] = ['code', 'terminal', 'web', 'tests', 'diff', 'pipeline', 'chart', 'data', 'chat', 'search', 'debug', 'mail', 'security', 'mql', 'dax', 'tester']
 const MODES: readonly string[] = ['off', 'idle', 'bug', ...KINDS]
 
 /**

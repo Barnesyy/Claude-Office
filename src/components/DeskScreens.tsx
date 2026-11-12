@@ -12,6 +12,7 @@
 
 import React, { useId } from 'react'
 import type { Affine, DeskGeometry, DeskScreen, ScreenMode, ScreenQuad } from '../screens'
+import { DaxChart, MetaEditor, StrategyTester } from './EaScreens'
 
 // Why: a static picture instead of motion when the viewer asks for less
 const MOVE = !(typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
@@ -305,6 +306,9 @@ function Screen({ q, mode, clipId }: { q: ScreenQuad; mode: ScreenMode; clipId: 
     case 'debug': body = <Debug />; break
     case 'mail': body = <Mail />; break
     case 'security': body = <Security />; break
+    case 'dax': body = <DaxChart />; break
+    case 'mql': body = <MetaEditor />; break
+    case 'tester': body = <StrategyTester />; break
     case 'bug':
       body = (
         <>
@@ -388,6 +392,7 @@ const GLOW: Partial<Record<ScreenMode, string>> = {
   bug: '#ef4444', security: '#facc15', code: '#60a5fa', terminal: '#4ade80', diff: '#86efac',
   web: '#e2e8f0', tests: '#4ade80', pipeline: '#facc15', chart: '#38bdf8', data: '#0ea5e9',
   chat: '#a78bfa', search: '#fbbf24', debug: '#f59e0b', mail: '#e2e8f0',
+  dax: '#22c55e', mql: '#93c5fd', tester: '#38bdf8',
 }
 
 interface Props {

@@ -107,6 +107,8 @@ interface SnapshotMessage {
   health?: ServerHealth
   /** Each session's task board, no descriptions (server/tasks.js) */
   taskBoards?: TaskBoardInfo[]
+  /** The EA scenes' state (server/ea-scenes.js) */
+  ea?: unknown
   mcpServers: string[]
   timestamp: number
 }
@@ -336,6 +338,10 @@ export function useAgentSocket(options: AgentSocketOptions = {}): AgentSocketRes
       // The task boards replace ours as a whole (left alone by a server without them)
       if (Array.isArray(snap.taskBoards)) {
         pushEvent({ type: 'task_board', boards: snap.taskBoards, timestamp: snap.timestamp })
+      }
+      // The EA scenes' state replaces ours (src/eaScenes.ts)
+      if (snap.ea && typeof snap.ea === 'object') {
+        pushEvent({ type: 'ea_state', ea: snap.ea, timestamp: snap.timestamp })
       }
       // The whole roster goes to the office as one event, so it can reconcile:
       // agents that completed or timed out while we were disconnected leave,
