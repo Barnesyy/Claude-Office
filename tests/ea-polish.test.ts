@@ -7,7 +7,7 @@
  */
 
 import { afterAll, describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, utimesSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EaScenes, resolveEaConfig, strategyKey, sameStrategy, periodParts, readReport, eaReadOnly, reportFolder } from '../server/ea-scenes.js'
@@ -233,5 +233,38 @@ describe('equity picker: one entry per result, and AUTO following the EA being w
     expect(snap.equity).toMatchObject({ name: 'BSTDAX_ONOFF_F02.htm', source: 'focus' })
     expect(snap.equityChoices).toHaveLength(15)
     expect(snap.equityChoices[14]).toMatchObject({ file: 'BSTDAX_ONOFF_F02.htm', focus: true })
+  })
+})
+
+describe('AUTO follows a Workbench build whose report names the EA differently (as on Jake\'s PC)', () => {
+  it('a report its runs wrote, in their tester folders since they started, is the focus; an older one there is not', () => {
+    const fx = workbench()
+    const T3 = '287BB2AAAAAAAAAAAAAAAAAAAAAAAAAA', T4 = 'B5ADFFAAAAAAAAAAAAAAAAAAAAAAAAAA'
+    const rq = join(fx.wb, 'runqueue')
+    writeFileSync(join(rq, 'config.json'), JSON.stringify({ armed: true, installs: { [fx.T1]: { name: 'BlackBull tester' }, [fx.T2]: { name: 'BlackBull tester 2' }, [T3]: { name: 'BlackBull tester 3' }, [T4]: { name: 'BlackBull tester 4' } } }))
+    const q = JSON.parse(readFileSync(join(rq, 'queue.json'), 'utf8'))
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const local = (t: number) => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` }
+    const startedAt = Date.now() - 10 * 60_000
+    const expert = 'C:\\Users\\x\\AppData\\Local\\EAWorkbench\\builds\\BPA_LIVE_SDR16\\twin\\BPA\\EA_BrooksPA_BlackBull.ex5'
+    for (const [id, test, inst, at] of [['Q10', 'R1803', T3, startedAt], ['Q11', 'R1804', T4, startedAt + 12_000]] as const) {
+      const camp = join(fx.wb, 'research', 'BPA', test); mkdirSync(camp, { recursive: true })
+      writeFileSync(join(camp, 'pipeline_state.json'), JSON.stringify({ status: 'RUNNING', updated: new Date().toISOString(), terminal: inst, owner_pid: 2716, completed: 1, planned: 40, completed_cases: [] }))
+      q.items.push({ id, test, install: inst, campaign: camp, what: 'Brooks Price Action target x stop map', expert, symbol: 'NAS_BB13', status: 'started', started: local(at) })
+    }
+    writeFileSync(join(rq, 'queue.json'), JSON.stringify(q))
+    const dir = (id: string) => { const d = join(fx.appData, 'MetaQuotes', 'Terminal', id); mkdirSync(d, { recursive: true }); return d }
+    const write = (p: string, ex: string, seed: number, ago: number) => { writeFileSync(p, utf16(reportHtml(fixtureRun({ seed }), { expert: ex, symbol: 'NAS_BB13' }))); const t = (Date.now() - ago) / 1000; utimesSync(p, t, t) }
+    write(join(dir(T4), 'OLD_BEFORE.htm'), 'SomethingElse', 31, 60 * 60_000)        // in the folder, but from before the build started
+    write(join(dir(T3), 'BTS_T450_S055.htm'), 'BPASDR16Twin', 32, 4 * 60_000)        // the build's result, under the EA's inner name
+    write(join(dir(fx.T2), 'srs_newer.htm'), 'SRS_DAX_Corrected_BlackBull', 33, 1000) // a newer report of another EA
+    let now = Date.now()
+    const s = new EaScenes({ config: { ...resolveEaConfig({}, {}), reportsDir: join(fx.appData, 'MetaQuotes', 'Terminal'), workbench: fx.wb, appData: fx.appData, rescanSeconds: 1 }, now: () => now,
+      readWorkbench: (d: string) => readWorkbench(d, { appData: fx.appData, alive: fx.alive, readReport, now }) })
+    s.tick()
+    const snap = s.snapshot()
+    expect(snap.equity).toMatchObject({ name: 'BTS_T450_S055.htm', source: 'focus', focus: 'EA_BrooksPA_BlackBull', expert: 'BPASDR16Twin' })
+    const flag = (f: string) => snap.equityChoices.find((c: any) => c.file === f)
+    expect([flag('BTS_T450_S055.htm')?.focus, flag('BTS_T450_S055.htm')?.folder, flag('OLD_BEFORE.htm')?.focus, flag('srs_newer.htm')?.focus]).toEqual([true, 'BlackBull tester 3', false, false])
   })
 })
