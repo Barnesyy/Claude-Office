@@ -14,7 +14,8 @@
 [CmdletBinding()]
 param()
 
-$RuntimeDir = if ($env:AGENT_OFFICE_HOME) { $env:AGENT_OFFICE_HOME } else { Join-Path $env:USERPROFILE '.agent-office' }
+$Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$RuntimeDir = if ($env:AGENT_OFFICE_HOME) { $env:AGENT_OFFICE_HOME } elseif (Test-Path (Join-Path $Root 'portable-home')) { Join-Path $Root '.agent-office' } else { Join-Path $env:USERPROFILE '.agent-office' }
 $PidFile = Join-Path $RuntimeDir 'win-office-pids.json'
 $LogDir = Join-Path $RuntimeDir 'logs'
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null

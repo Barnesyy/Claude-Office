@@ -589,8 +589,13 @@ export function findPython(env = process.env, platform = process.platform) {
   else candidates.push(['python3', []], ['python', []])
   for (const [cmd, args] of candidates) {
     try {
-      const r = spawnSync(cmd, [...args, '-c', 'import sys; print(sys.version_info[0])'], { encoding: 'utf8', windowsHide: true, timeout: 5000 })
-      if (r.status === 0 && r.stdout.trim() === '3') return { cmd, args }
+      const r = spawnSync(cmd, [...args, '-c', 'import sys; print(sys.version_info[0]); print(sys.executable)'], { encoding: 'utf8', windowsHide: true, timeout: 5000 })
+      const [major, exe] = String(r.stdout ?? '').trim().split(/\r?\n/)
+      if (r.status !== 0 || major?.trim() !== '3') continue
+      // Why the real python.exe and not py.exe: the launcher would sit between the
+      // watcher and the bridge as one more console process for every start
+      if (cmd === 'py' && exe && existsSync(exe.trim())) return { cmd: exe.trim(), args: [] }
+      return { cmd, args }
     } catch {}
   }
   return null
