@@ -115,3 +115,22 @@ describe('EA session -> watcher -> /ea/payload -> WebSocket', () => {
     expect(snap.ea.station.status).toBe('done')
   }, 30000)
 })
+
+describe('POST /ea/equity/pin', () => {
+  it('needs the UI token, takes only a string or null, and only a listed report', async () => {
+    const o = await loadOffice()
+    try {
+      const app = o.server.app
+      expect((await request(app).post('/ea/equity/pin').send({ path: null })).status).toBe(401)
+      const ui = `Bearer ${o.server.UI_TOKEN}`
+      expect((await request(app).post('/ea/equity/pin').set('Authorization', ui).send({ path: 5 })).status).toBe(400)
+      expect((await request(app).post('/ea/equity/pin').set('Authorization', ui).send({ path: 'C:/not/listed.htm' })).status).toBe(404)
+      const back = await request(app).post('/ea/equity/pin').set('Authorization', ui).send({ path: null })
+      expect(back.status).toBe(200)
+      expect(back.body).toEqual({ ok: true, pin: null })
+    } finally {
+      o.server.httpServer.close()
+      removeOffice(o)
+    }
+  })
+})

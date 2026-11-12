@@ -3920,6 +3920,8 @@ setInterval(() => sweepStale(), 5 * 60_000).unref()
 const ea = mountEaScenes({
   app,
   requireToken,
+  requireUi,
+  stateDir: RUNTIME_DIR,
   isTrusted: req => tokenMatches(bearerToken(req)),
   broadcast: payload => broadcast(payload),
   resolve: (sessionId, agentId) => (agentId ? lookupAgentId(agentId) : sessionId ? mainActivityId(sessionId) : null),

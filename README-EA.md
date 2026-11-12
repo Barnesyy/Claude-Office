@@ -153,7 +153,11 @@ The office levels up from real work only. Each source:
   - **Walk-forward:** `ForwardMode>0` in that ini, read on this PC. If the ini can't be read, the run counts
     as walk-forward only when the file name says so (`wf`, `walk-forward`, `forward`).
   - **Tester report:** counts when the ini's `Report=` file was written during the run.
-  - **Lesson:** the same command or file failed, then worked, in the same session within 2 h.
+  - **Lesson:** the same command or file failed, then worked, in the same session within 2 h. Rules:
+    - The key is the whole normalised command (or tool + file), not just the program name.
+    - Both times come from the transcript record, not the wall clock.
+    - The failure has to be real: a non-zero exit plus error text. Edit chores ("read it first", "string not found") don't count, and neither do commands made only of probes (`grep`, `rg`, `ls`, `sed`, `cut`, ...).
+    - History replayed from before the office started earns no XP and no lessons.
 - **Demo equity highs:** only from a real MT5 account report on a demo account (see config below).
   No report means no number. The first reading is the baseline.
 
@@ -274,8 +278,31 @@ AGENT_OFFICE_HOME=/tmp/ao AGENT_OFFICE_PORT=3434 node scripts/transcript-watch.m
 node scripts/ea-demo.mjs --to /tmp/ao/proj [--with-fixtures] [--no-report] [--hold-tester 30]
 ```
 
+### Backtest station: EA Workbench queue (read-only)
+
+- If `ea.workbench` is unset, the station reads `%LOCALAPPDATA%\EAWorkbench`. Set it to a path to use another folder, or to `false` to turn it off.
+- Files it reads: `runqueue\queue.json`, `runqueue\config.json` and each campaign's `pipeline_state.json`.
+- **Running** means the campaign isn't finished and its owner or terminal process is alive.
+- The station shows the queue depth for each tester install, and the latest finished result with its numbers taken from that case's real `.htm` report in the tester's terminal folder. If there is no report, it shows no numbers.
+- It never writes there and never starts anything.
+
+### Equity wall: which curve
+
+- **Auto** shows the newest completed report of the strategy being worked on:
+  - a session's own tester run shows at once;
+  - otherwise the Workbench's newest run of that EA.
+- A different report only replaces the current one after `ea.equityDwellMinutes` (default 10) on the wall.
+- The caption names the EA, symbol, period and date range.
+- The picker on the wall pins one of the 14 newest reports, or goes back to Auto. It only works on the loopback page with the UI token. The pin is kept in `<home>/ea-equity.json`.
+
+### Stale needs-you
+
+- A session waiting on you for more than 6 h moves to a separate **stale (>6h)** bucket, so it no longer inflates the main count.
+- Where it appears: the status strip, the Command Centre's "Stale >6h" column, and pills that are faded and sorted last.
+- Each needs-you pill and tooltip shows how long it has waited.
+
 - Fixtures: `tests/fixtures/ea/` (regenerate with `node tests/fixtures/ea/make-ea-fixtures.mjs`).
-- Tests: `tests/ea-scenes.test.ts`, `tests/ea-office.test.ts`, `tests/ea-scenes-ui.test.ts`.
+- Tests: `tests/ea-scenes.test.ts`, `tests/ea-office.test.ts`, `tests/ea-scenes-ui.test.ts`, `tests/ea-polish.test.ts`.
 
 ## Hooking in a progression layer
 

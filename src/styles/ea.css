@@ -322,3 +322,11 @@
 /* Needs-you older than 6 h (src/mainState.ts isStaleNeedsYou): old terminals at a dialog */
 .cc-stale .cc-dot  { background: #8a6d3b; }
 .cc-stale .cc-card { border-left-color: #8a6d3b; opacity: 0.75; }
+
+/* The EA Workbench run queue on the station card */
+.ea-card-queue { margin-top: 2px; font-size: 0.92em; opacity: 0.85; line-height: 1.25; }
+.ea-card-queue div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* The equity wall's report picker and its AUTO / PINNED tag */
+.wall-pick { position: absolute; z-index: 40; font: 9px/1.2 var(--pixel-font, monospace); background: #1e1d18; color: #e8e2c8; border: 1px solid #4a4636; border-radius: 2px; padding: 0 2px; height: 15px; max-width: 220px; }
+.wall-equity-pick { font-size: 0.7em; letter-spacing: 0.06em; opacity: 0.7; margin-top: -1px; }

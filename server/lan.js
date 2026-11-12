@@ -373,6 +373,9 @@ const ID = '[^/]{1,200}'
  *   GET /chat, /agents, /sessions, /signals, /tasks, /registry, /permissions,
  *   /health, GET /status
  *       reads the page never makes: the WebSocket already carries what it draws
+ *   POST /ea/equity/pin
+ *       picks which tester report the equity wall shows (src/eaScenes.ts pinEquity):
+ *       the page's UI token, loopback only; a phone has no picker
  *   GET /progression, /progression/day, /progression/quarter
  *       the progression cabinet and panel (src/progression.ts): their labels
  *       carry project, repo and file names, and the phone's page never
