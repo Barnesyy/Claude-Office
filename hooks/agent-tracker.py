@@ -278,7 +278,7 @@ def permission_summary(name, inp):
     if name in FILE_TOOLS:
         path = str(inp.get('file_path') or inp.get('notebook_path') or '')
         return os.path.basename(path.rstrip('/')) or name
-    if name == 'Bash':
+    if name in ('Bash', 'PowerShell'):
         return one_line(inp.get('command') or inp.get('description'), 80) or name
     return name
 
@@ -292,7 +292,7 @@ def call_key(name, inp):
 
 def permission_detail(name, inp):
     inp = inp if isinstance(inp, dict) else {}
-    if name == 'Bash':
+    if name in ('Bash', 'PowerShell'):
         text = inp.get('command') or inp.get('description') or ''
     elif name in FILE_TOOLS:
         text = inp.get('file_path') or inp.get('notebook_path') or ''
@@ -1297,7 +1297,7 @@ def with_signals(event):
     # costs the signals, never the event.
     inp = d.get('tool_input')
     command = inp.get('command') if isinstance(inp, dict) else None
-    if tool_name != 'Bash' or not isinstance(command, str) or not might_signal(command):
+    if tool_name not in ('Bash', 'PowerShell') or not isinstance(command, str) or not might_signal(command):
         return event
     try:
         load_signals()
@@ -1462,6 +1462,7 @@ if hook_event == 'PreToolUse':
         'Write': lambda i: f"writing {re.split(r'[\\/]', str(i.get('file_path') or ''))[-1]}",
         'Edit':  lambda i: f"editing {re.split(r'[\\/]', str(i.get('file_path') or ''))[-1]}",
         'Bash':  lambda i: f"running: {str(i.get('command') or i.get('description') or '')[:60]}",
+        'PowerShell': lambda i: f"running: {str(i.get('command') or i.get('description') or '')[:60]}",
         'Grep':  lambda i: f"searching for '{str(i.get('pattern') or '')[:30]}'",
         'Glob':  lambda i: f"finding files: {str(i.get('pattern') or '')[:40]}",
         'Skill': lambda i: f"using /{i.get('skill') or 'skill'}",

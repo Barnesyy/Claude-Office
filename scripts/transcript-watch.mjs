@@ -10,6 +10,8 @@
  *   node scripts/transcript-watch.mjs --from-start    read existing files from the start (replays)
  *   node scripts/transcript-watch.mjs --once          one pass, then exit (with --from-start: a replay)
  *   node scripts/transcript-watch.mjs --js            built-in converter even when Python is there
+ *   node scripts/transcript-watch.mjs --registry-any-pid   trust every registry file, live pid or not
+ *                                                     (replaying another machine's ~/.claude/sessions)
  *
  * Settings: the `transcripts` block of office.config.json (see README-EA.md).
  * Environment: AGENT_OFFICE_PORT, AGENT_OFFICE_HOME (token + pid file),
@@ -69,7 +71,8 @@ const sink = dryRun
   : async events => { for (const e of events) await post(e) }
 
 const converter = createConverter({ forceJs: flag('--js') })
-const watcher = new TranscriptWatcher({ config, converter, sink, fromStart: flag('--from-start') })
+const watcher = new TranscriptWatcher({ config, converter, sink, fromStart: flag('--from-start'),
+  ...(flag('--registry-any-pid') ? { alive: () => true } : {}) })
 
 const pidFile = join(RUNTIME_DIR, 'transcript-watch.pid')
 function cleanup() {
