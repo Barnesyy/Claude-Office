@@ -50,6 +50,7 @@ import {
 import { loadOrCreateLanCert } from './lan-cert.js'
 import { notifyTaps, addEventTap } from './event-taps.js'
 import { createRecap, recapLine, isRecapDate, localDate } from './recap.js'
+import { mountProgression } from './progression-routes.js'
 import { createPromptQueue, parseMention, resolveMention, mentionName, MARKER_DIR_NAME, MAX_PROMPT_LEN, MAX_QUEUED_PER_SESSION } from './prompt-queue.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -1869,6 +1870,13 @@ const recap = createRecap(db)
 function noteRecap(fn) {
   try { fn() } catch (err) { console.warn(`[recap] not counted: ${err?.message ?? err}`) }
 }
+
+// XP, levels, trophies, unlocks, lessons, recaps (server/progression-routes.js):
+// fed by the event tap and the transcript watcher's facts, kept in chat.db
+const { progression } = mountProgression(app, {
+  db, requireToken, requireUi, broadcast, addEventTap, recap,
+  readConfig: () => loadOfficeConfig(CONFIG_DIR).config,
+})
 
 // Payroll / electricity / memory: POST /status + GET /status (server/status.js),
 // fed by the Claude Code status line and keyed by the same session ids as `sessions`
@@ -5032,6 +5040,7 @@ export {
   activity,
   processEvent,
   recap,
+  progression,
   sendAgentMessage,
   sweepStale,
   broadcast,
