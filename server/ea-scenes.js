@@ -550,11 +550,49 @@ export function periodParts(period) {
   return { timeframe: m?.[1] ?? null, from: m?.[2] ?? null, to: m?.[3] ?? null }
 }
 
+/**
+ * One tester result, whatever form or folder it was saved in: MT5 writes the same run as .htm and .xml,
+ * and a copied report sits in two terminal folders. Same EA build, symbol, period, deals and result.
+ */
+export function reportIdentity(r) {
+  const last = r.points?.length ? r.points[r.points.length - 1] : null
+  // No period: an .xml export leaves it out, and the deals already pin the date range
+  return [String(r.expert ?? r.name ?? '').toLowerCase(), r.symbol ?? '', r.netProfit ?? '', r.trades ?? '', r.dealCount ?? 0, last ? last.join(':') : ''].join('|')
+}
+
+/** The report's tester folder (the MT5 data folder id it sits in), and that folder's name when known. */
+export function reportFolder(p, names = {}) {
+  const id = basenameAny(dirnameAny(String(p)))
+  const named = Object.entries(names).find(([k]) => k.toUpperCase() === id.toUpperCase())?.[1]
+  return { id, name: named || (/^[0-9A-F]{16,}$/i.test(id) ? id.slice(0, 6) : id) }
+}
+
+/**
+ * The wall's reports, newest first, one entry per result (dedupe by reportIdentity; .htm beats .xml,
+ * then the newest file). Each keeps where else it was seen.
+ * @returns {Array<{ path: string, report: object, file: string, folder: string, also: number }>}
+ */
+export function dedupeReports(reports, names = {}) {
+  const byId = new Map()
+  const rank = r => (/\.html?$/i.test(r.path) ? 1 : 0)
+  for (const r of [...reports].filter(Boolean).sort((a, b) => b.mtime - a.mtime)) {
+    const k = reportIdentity(r)
+    const had = byId.get(k)
+    if (!had) { byId.set(k, { r, also: 0 }); continue }
+    if (had.r.path === r.path) continue
+    had.also++
+    if (rank(r) > rank(had.r)) had.r = r
+  }
+  return [...byId.values()].sort((a, b) => b.r.mtime - a.r.mtime).map(({ r, also }) => ({ path: r.path, report: r, file: basenameAny(r.path), folder: reportFolder(r.path, names).name, also }))
+}
+
 // ---------------------------------------------------------------------------
 // The state machine
 // ---------------------------------------------------------------------------
 
 const STATION_IDLE = Object.freeze({ status: 'idle', kind: null })
+const POOL_MAX = 60
+const CHOICES_MAX = 14
 const TICKER_MAX = 24
 const RUNS_MAX = 8
 const RISK_MAX = 8
@@ -593,6 +631,8 @@ export class EaScenes {
     this.focus = null
     this.held = null
     this.choices = []
+    /** Every recent result (deduped), newest first: what the automatic choice looks through */
+    this.pool = []
     /** The EA Workbench run queue (server/ea-workbench.js), read on the rescan */
     this.wbDir = findWorkbench(config.workbench, config.localAppData)
     this.readWorkbench = readWorkbench ?? (dir => readWorkbenchFiles(dir, { appData: config.appData, readReport: readReportCached, now: this.now() }))
@@ -872,7 +912,7 @@ export class EaScenes {
     }
     if (typeof p !== 'string') return false
     // Only a report the office listed: the page cannot make the server read an arbitrary file
-    const known = this.choices.find(c => c.path === p) ?? (this.equity?.path === p ? this.equity : null)
+    const known = this.choices.find(c => c.path === p) ?? this.pool.find(c => c.path === p) ?? (this.equity?.path === p ? this.equity : null)
     if (!known) return false
     const r = readReportCached(p)
     if (!r) return false
@@ -896,7 +936,7 @@ export class EaScenes {
       if (r && (!this.equity || this.equity.path !== r.path || this.equity.mtime !== r.mtime)) return this.setEquity(r, 'pinned', { force: true })
       return false
     }
-    const pool = this.choices.map(c => c.report)
+    const pool = (this.pool.length ? this.pool : this.choices).map(c => c.report)
     if (!pool.length) return false
     const mine = this.focus ? pool.filter(r => sameStrategy(r.expert ?? r.name, this.focus.key)) : []
     const best = (mine.length ? mine : pool)[0]
@@ -988,10 +1028,15 @@ export class EaScenes {
         if (this.noteWorkbench(wb, now)) changed = true
       }
       // The wall's choices: the reports folder's newest, and the Workbench's last result
-      const list = this.config.reportsDir ? recentReports(this.config.reportsDir) : []
-      const extra = [this.wb?.latest?.report, this.equity?.source === 'run' ? readReportCached(this.equity.path) : null].filter(Boolean)
-      const seen = new Set()
-      this.choices = [...list, ...extra].filter(r => r && !seen.has(r.path) && seen.add(r.path)).sort((a, b) => b.mtime - a.mtime).slice(0, 14).map(r => ({ path: r.path, report: r }))
+      // A deeper pool than the picker shows, so the EA being worked on is found even under a busy queue's other reports
+      const list = this.config.reportsDir ? recentReports(this.config.reportsDir, { limit: POOL_MAX, look: POOL_MAX * 3 }) : []
+      const extra = [this.wb?.latest?.report, this.equity?.source === 'run' ? readReportCached(this.equity.path) : null, this.pin ? readReportCached(this.pin) : null].filter(Boolean)
+      this.pool = dedupeReports([...list, ...extra], this.wb?.names ?? {})
+      // The picker: the newest, plus the shown and the focus EA's newest when they are older
+      const top = this.pool.slice(0, CHOICES_MAX)
+      const mine = this.focus ? this.pool.find(c => sameStrategy(c.report.expert ?? c.report.name, this.focus.key)) : null
+      for (const c of [mine, this.pool.find(c => c.path === this.equity?.path)]) if (c && !top.includes(c)) top.push(c)
+      this.choices = top
       if (this.selectEquity(now)) changed = true
     }
     // Expiry
@@ -1024,6 +1069,8 @@ export class EaScenes {
       equityChoices: this.choices.map(c => ({
         ...(trusted ? { path: c.path } : {}), name: c.report.name, expert: c.report.expert ?? null, symbol: c.report.symbol ?? null,
         period: c.report.period ?? null, mtime: c.report.mtime, netProfit: c.report.netProfit ?? null,
+        file: c.file ?? basenameAny(c.path), folder: c.folder ?? reportFolder(c.path, this.wb?.names ?? {}).name, also: c.also ?? 0,
+        focus: !!(this.focus && sameStrategy(c.report.expert ?? c.report.name, this.focus.key)),
       })),
       reportsDir: this.config.reportsDir ? (trusted ? this.config.reportsDir : basenameAny(this.config.reportsDir)) : null,
       cabinets: [...this.years.entries()].sort((a, b) => a[0] - b[0]).map(([year, e]) => ({ year, lastAt: e.lastAt, active: e.running.size > 0 })),

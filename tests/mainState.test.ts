@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
   mainId, isMainAgent, isHardNeedsYou, needsYouLabel, needsYouBadge, needsYouShort,
   agentStateFor, isFreeMain, mainTone, mainPillText, shortModel,
-  formatTokensShort, formatElapsed, completionStats, summarise, projectFromCwd, countRunningTasks, stripCounts, isStaleNeedsYou, needsYouSince, formatAge,
+  formatTokensShort, formatElapsed, completionStats, summarise, projectFromCwd, countRunningTasks, stripCounts, isStaleNeedsYou, needsYouSince, formatAge, comparePills,
 } from '../src/mainState'
 import type { MainState, NeedsYou, SessionInfo } from '../src/types'
 
@@ -143,6 +143,21 @@ describe('mainState helpers', () => {
     expect(isStaleNeedsYou(counts.stale[0], now)).toBe(true)
     expect(needsYouSince(counts.stale[0])).toBe(now - 23 * 3600_000)
     expect([formatAge(45_000), formatAge(12 * 60_000), formatAge(23 * 3600_000), formatAge(50 * 3600_000)]).toEqual(['45s', '12m', '23h', '2d'])
+  })
+
+  it('orders pills: fresh needs-you first (most recent first), then the rest by start, stale needs-you, ended last', () => {
+    const now = 100 * 3600_000
+    const hand = (h: number) => ({ main: { state: 'needs-you' as MainState, needsYou: { kind: 'permission' as const, since: now - h * 3600_000 } } })
+    const list = [
+      session('working', { startedAt: 5, main: { state: 'working' } }),
+      session('stale-30h', { startedAt: 1, ...hand(30) }),
+      session('ended', { startedAt: 0, state: 'ended' }),
+      session('fresh-4h', { startedAt: 2, ...hand(4) }),
+      session('stale-7h', { startedAt: 3, ...hand(7) }),
+      session('fresh-10m', { startedAt: 9, ...hand(1 / 6) }),
+      session('done', { startedAt: 4, main: { state: 'idle' } }),
+    ]
+    expect([...list].sort((a, b) => comparePills(a, b, now)).map(s => s.id)).toEqual(['fresh-10m', 'fresh-4h', 'done', 'working', 'stale-7h', 'stale-30h', 'ended'])
   })
 
   it('has no text for a zero count and a singular for one session', () => {

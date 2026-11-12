@@ -10,7 +10,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { EaScenes, resolveEaConfig, strategyKey, sameStrategy, periodParts, readReport, eaReadOnly } from '../server/ea-scenes.js'
+import { EaScenes, resolveEaConfig, strategyKey, sameStrategy, periodParts, readReport, eaReadOnly, reportFolder } from '../server/ea-scenes.js'
 import { readWorkbench, findWorkbench, FINISHED } from '../server/ea-workbench.js'
 import { fixtureRun, reportHtml, reportXml, utf16 } from './fixtures/ea/make-ea-fixtures.mjs'
 
@@ -171,5 +171,67 @@ describe('EA Workbench run queue', () => {
     expect(after.station.status).toBe('report-missing')            // the search's own last case has no report
     expect(after.station.note).toMatch(/report not found: no finished case yet/)
     expect(after.ticker.map((t: any) => t.text).join('\n')).toMatch(/R1781 finished|Workbench/)
+  })
+})
+
+describe('equity picker: one entry per result, and AUTO following the EA being worked on', () => {
+  const age = (p: string, ms: number) => { const t = (Date.now() - ms) / 1000; utimesSync(p, t, t) }
+  function scene(fx: ReturnType<typeof workbench>, opts: Record<string, unknown> = {}) {
+    let now = Date.now()
+    const s = new EaScenes({ config: { ...resolveEaConfig({}, {}), reportsDir: join(fx.appData, 'MetaQuotes', 'Terminal'), workbench: fx.wb, appData: fx.appData, rescanSeconds: 1, ...opts }, now: () => now,
+      readWorkbench: (dir: string) => readWorkbench(dir, { appData: fx.appData, alive: fx.alive, readReport, now }) })
+    return { s, advance: (ms: number) => { now += ms } }
+  }
+  const term = (fx: ReturnType<typeof workbench>, id: string) => { const d = join(fx.appData, 'MetaQuotes', 'Terminal', id); mkdirSync(d, { recursive: true }); return d }
+
+  it('folds the same run saved as .htm and .xml, and copied to another tester folder, into one choice named by file and tester', () => {
+    const fx = workbench()
+    const t2 = term(fx, fx.T2), t1 = term(fx, fx.T1)
+    const run = fixtureRun({ seed: 9 })
+    writeFileSync(join(t2, 'BSTDAX_ONOFF_F02.xml'), reportXml(run, { expert: 'BrooksSetupTesterDAX_v024_bad76042', symbol: 'DAX40' }))
+    writeFileSync(join(t1, 'copy.htm'), utf16(reportHtml(run, { expert: 'BrooksSetupTesterDAX_v024_bad76042', symbol: 'DAX40' })))
+    age(join(t2, 'BSTDAX_ONOFF_F02.xml'), 1000); age(join(t2, 'BSTDAX_ONOFF_F02.htm'), 2000); age(join(t1, 'copy.htm'), 3000)
+    // a different result of the same EA stays its own entry
+    writeFileSync(join(t2, 'other.htm'), utf16(reportHtml(fixtureRun({ seed: 4 }), { expert: 'BrooksSetupTesterDAX_v024_bad76042', symbol: 'DAX40' })))
+    age(join(t2, 'other.htm'), 60_000)
+    const { s } = scene(fx)
+    s.tick()
+    const choices = s.snapshot().equityChoices
+    expect(choices.map((c: any) => [c.file, c.folder, c.also])).toEqual([['BSTDAX_ONOFF_F02.htm', 'BlackBull tester 2', 2], ['other.htm', 'BlackBull tester 2', 0]])
+    expect(reportFolder('C:\\x\\Terminal\\0123456789ABCDEF0123\\a.htm')).toEqual({ id: '0123456789ABCDEF0123', name: '012345' })
+  })
+
+  it('shows the newest report until the EA being worked on has a finished one, then that, and keeps it over newer reports of other EAs', () => {
+    const fx = workbench()
+    const t2 = term(fx, fx.T2), t1 = term(fx, fx.T1)
+    rmSync(join(t2, 'BSTDAX_ONOFF_F02.htm'))           // the Workbench's newest run (R1802, Brooks) has no report yet
+    writeFileSync(join(t1, 'srs1.htm'), utf16(reportHtml(fixtureRun({ seed: 5 }), { expert: 'SRS_DAX_Corrected_BlackBull' })))
+    const { s, advance } = scene(fx)
+    s.tick()
+    expect(s.snapshot().equity).toMatchObject({ name: 'srs1.htm', source: 'folder', focus: 'BrooksSetupTesterDAX_v024_bad76042' })
+    // Its report lands: shown after the dwell (it replaces a curve that is not the focus's)
+    writeFileSync(join(t2, 'BSTDAX_ONOFF_F02.htm'), utf16(reportHtml(fixtureRun({ seed: 9 }), { expert: 'BrooksSetupTesterDAX_v024_bad76042', symbol: 'DAX40' })))
+    advance(2000); s.tick()
+    expect(s.snapshot().equity.held).toMatchObject({ name: 'BSTDAX_ONOFF_F02.htm' })
+    advance(10 * 60_000); s.tick()
+    expect(s.snapshot().equity).toMatchObject({ name: 'BSTDAX_ONOFF_F02.htm', source: 'focus' })
+    // A newer report of another EA does not take the wall
+    writeFileSync(join(t1, 'srs2.htm'), utf16(reportHtml(fixtureRun({ seed: 6 }), { expert: 'SRS_DAX_Corrected_BlackBull' })))
+    advance(11 * 60_000); s.tick()
+    expect(s.snapshot().equity).toMatchObject({ name: 'BSTDAX_ONOFF_F02.htm', source: 'focus' })
+    expect(s.snapshot().equityChoices.find((c: any) => c.file === 'BSTDAX_ONOFF_F02.htm')).toMatchObject({ focus: true })
+  })
+
+  it('finds the focus EA under more than a picker-full of newer reports, and lists it', () => {
+    const fx = workbench()
+    const t1 = term(fx, fx.T1)
+    age(join(fx.appData, 'MetaQuotes', 'Terminal', fx.T2, 'BSTDAX_ONOFF_F02.htm'), 3600_000)
+    for (let i = 0; i < 20; i++) { const p = join(t1, `srs${i}.htm`); writeFileSync(p, utf16(reportHtml(fixtureRun({ seed: 20 + i }), { expert: 'SRS_DAX_Corrected_BlackBull' }))); age(p, i * 1000) }
+    const { s } = scene(fx)
+    s.tick()
+    const snap = s.snapshot()
+    expect(snap.equity).toMatchObject({ name: 'BSTDAX_ONOFF_F02.htm', source: 'focus' })
+    expect(snap.equityChoices).toHaveLength(15)
+    expect(snap.equityChoices[14]).toMatchObject({ file: 'BSTDAX_ONOFF_F02.htm', focus: true })
   })
 })

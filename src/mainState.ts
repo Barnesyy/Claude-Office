@@ -162,6 +162,24 @@ export function isStaleNeedsYou(s: Pick<SessionInfo, 'main' | 'lastActivityAt' |
   return since !== undefined && now - since > staleMs
 }
 
+/**
+ * Pill order inside a project group: fresh needs-you first (the one that asked most recently first),
+ * then the rest by start, then stale needs-you (most recent first), ended last.
+ */
+export function pillRank(s: Pick<SessionInfo, 'main' | 'lastActivityAt' | 'startedAt' | 'registry' | 'state'>, now = Date.now()): number {
+  if (s.state === 'ended') return 3
+  if (isStaleNeedsYou(s, now)) return 2
+  const hand = (s.main?.state === 'needs-you' && isHardNeedsYou(s.main.needsYou)) || (!s.main && s.registry?.status === 'waiting')
+  return hand ? 0 : 1
+}
+
+export function comparePills(a: Pick<SessionInfo, 'main' | 'lastActivityAt' | 'startedAt' | 'registry' | 'state'>, b: Pick<SessionInfo, 'main' | 'lastActivityAt' | 'startedAt' | 'registry' | 'state'>, now = Date.now()): number {
+  const ra = pillRank(a, now), rb = pillRank(b, now)
+  if (ra !== rb) return ra - rb
+  if (ra === 0 || ra === 2) return (needsYouSince(b) ?? 0) - (needsYouSince(a) ?? 0)
+  return (a.startedAt ?? 0) - (b.startedAt ?? 0)
+}
+
 /** 45 000 → "45s", 720 000 → "12m", 3 h → "3h", 50 h → "2d" */
 export function formatAge(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000))

@@ -152,6 +152,8 @@ export function readWorkbench(dir, { alive = pidAlive, readReport = () => null, 
     running: running.map(r => ({ ...r, installName: nameOf(r.install) })),
     queued: queued.length,
     installs: perInstall,
+    /** Terminal (MT5 data folder) id -> install name, to name a report's folder */
+    names: Object.fromEntries(Object.entries(installs).map(([id, v]) => [id.toUpperCase(), String(v?.name || '')]).filter(([, n]) => n)),
     latest,
     /** The newest started run (what is being worked on), for the equity wall's focus */
     newest: started[0] ? { test: String(started[0].test ?? ''), expert: started[0].expert ? base(String(started[0].expert).replace(/\\/g, '/')).replace(/\.ex5$/i, '') : null, startedAt: when(started[0].started) } : null,
