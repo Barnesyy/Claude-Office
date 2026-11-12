@@ -306,37 +306,118 @@ export function bashFacts({ command, ok, output, cwd, at, background = false, wi
 // The extractor: payloads in, facts out (with lesson pairing)
 // ---------------------------------------------------------------------------
 
-const LESSON_TOOLS = new Set(['Bash', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
+const LESSON_TOOLS = new Set(['Bash', 'PowerShell', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
 // Why 2 h: a failure that is fixed the next morning is a new day's work, not this lesson
 const LESSON_WINDOW_MS = 2 * 3600_000
 
-/** The key two calls share when they are "the same thing": the command's programs, or the edited file. */
+// Programs that only look (search, list, print, compare): a non-zero exit from these is an answer
+// ("no match", "differs", "not there"), not a failure anyone learns from
+const PROBES = new Set([
+  'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'findstr', 'find', 'fd', 'ls', 'dir', 'tree', 'test', '[', '[[', 'true', 'false',
+  'which', 'where', 'type', 'command', 'cat', 'head', 'tail', 'less', 'more', 'sed', 'awk', 'cut', 'tr', 'sort', 'uniq', 'wc',
+  'diff', 'cmp', 'comm', 'stat', 'file', 'du', 'df', 'echo', 'printf', 'pwd', 'date', 'sleep', 'xargs', 'jq', 'tee', 'ps',
+  'tasklist', 'pgrep', 'get-childitem', 'gci', 'select-string', 'sls', 'test-path', 'get-content', 'gc', 'get-item', 'get-process',
+  'select-object', 'where-object', 'format-table', 'measure-object', 'out-string', 'write-output', 'write-host', 'start-sleep',
+])
+// Edit/Write refusals that are bookkeeping, not a mistake: the file was not read first, the text moved
+const EDIT_CHORES = /has not been read|read it first|string to replace not found|not found in (the )?file|modified since|has been modified|old_string|no changes to make|matches of the string|is identical/i
+// What a real failure says
+const ERROR_WORDS = /\berror\b|exception|traceback|\bfail(ed|ure|ing)?\b|fatal|not found|no such file|denied|cannot|can't|unable|invalid|syntax|refused|timed? ?out|panic|abort|segmentation|missing|undefined|not recognized|unexpected/i
+
+/** Separators (&& || ; |) and runs of white space, and a leading cd / set-up, gone: one key per command a person would call "the same". */
+export function normaliseCommand(command) {
+  const segs = splitSegments(command ?? '')
+  // Skip cd / setup segments at the front: where it ran is not what was tried
+  let i = 0
+  while (i < segs.length && /^(cd|pushd|set|export|source|\.|set-location|sl|chdir)$/i.test(programOf(segs[i])?.program ?? '')) i++
+  return segs.slice(i).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ; ').slice(0, 400)
+}
+
+const INTERPRETERS = new Set(['python', 'python3', 'py', 'node', 'bash', 'sh', 'pwsh', 'powershell', 'deno', 'bun', 'ruby', 'perl', 'tsx', 'ts-node'])
+const SCRIPT_EXT = /\.(py|mjs|cjs|js|ts|ps1|sh|rb|pl)$/i
+
+/** The label of a Bash command: programs and subcommand words, and for an interpreter the script's file name (never arguments or paths). */
+function bashLabel(main) {
+  return main.slice(0, 2).map(p => {
+    if (INTERPRETERS.has(p.program)) {
+      const script = p.args.find(a => !a.startsWith('-'))
+      if (script && SCRIPT_EXT.test(script)) return `${p.program} ${basename(script.replace(/\\/g, '/')).slice(0, 40)}`
+    }
+    return labelOf(p)
+  }).join(' && ')
+}
+
+/**
+ * The key two calls share when they are "the same thing": the whole command (normalised), or the tool and the
+ * file it edits. The key stays on this side; only the label (program names, a script or file name) is sent.
+ */
 export function lessonKey(toolName, input) {
-  if (toolName === 'Bash') {
-    const segs = splitSegments(input?.command ?? '').map(programOf).filter(Boolean)
-    // Skip cd / setup segments: the label is what was being tried
-    const main = segs.filter(p => !/^(cd|pushd|set|export|echo|source|\.)$/.test(p.program))
+  if (toolName === 'Bash' || toolName === 'PowerShell') {
+    const command = input?.command ?? ''
+    const segs = splitSegments(command).map(programOf).filter(Boolean)
+    const main = segs.filter(p => !/^(cd|pushd|set|export|echo|source|\.|set-location|sl|chdir)$/.test(p.program))
     if (!main.length) return null
-    const label = main.slice(0, 2).map(p => labelOf(p)).join(' && ')
-    return label ? { key: `Bash:${label}`, label } : null
+    const norm = normaliseCommand(command)
+    const label = bashLabel(main)
+    const probe = main.every(p => PROBES.has(p.program))
+    return label && norm ? { key: `Bash:${norm}`, label, probe } : null
   }
   const file = input?.file_path ?? input?.notebook_path
   if (typeof file !== 'string' || !file) return null
   const name = basename(file.replace(/\\/g, '/')).slice(0, 60)
-  return { key: `${toolName === 'MultiEdit' ? 'Edit' : toolName}:${file.toLowerCase()}`, label: `${toolName === 'Write' ? 'Write' : 'Edit'} ${name}` }
+  return { key: `${toolName === 'MultiEdit' ? 'Edit' : toolName}:${file.toLowerCase()}`, label: `${toolName === 'Write' ? 'Write' : 'Edit'} ${name}`, probe: false }
+}
+
+/** "Exit code 2" (Claude Code's failure text) -> 2; null when the text names none. */
+export function exitCodeOf(text) {
+  const m = /\bexit(?:ed)?(?: with)?(?: code| status)?[: ]+(-?\d+)/i.exec(String(text ?? ''))
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * Whether a failed call is one worth a lesson: a shell command that exited non-zero and said why (an error line),
+ * not a search or listing that found nothing; an edit refused for a reason other than bookkeeping.
+ */
+export function meaningfulFailure(toolName, key, errorText) {
+  const text = String(errorText ?? '')
+  if (toolName === 'Bash' || toolName === 'PowerShell') {
+    if (key.probe) return false
+    const code = exitCodeOf(text)
+    if (code === 0) return false
+    // Exit 1 with nothing else to say is how many tools say "no" (grep, test, findstr): not a failure to learn from
+    const body = text.replace(/\bexit(?:ed)?(?: with)?(?: code| status)?[: ]+-?\d+/ig, '').trim()
+    if (!body) return false
+    return ERROR_WORDS.test(body)
+  }
+  if (!text.trim()) return false
+  return !EDIT_CHORES.test(text)
 }
 
 export class FactExtractor {
   /**
-   * @param {{ withSignals?: boolean, now?: () => number, io?: object }} [opts]
+   * @param {{ withSignals?: boolean, now?: () => number, io?: object, timeOf?: (p: object) => number | undefined, startedAt?: number }} [opts]
    *   withSignals: the converter sends build/test/push signals itself (Python tracker)
+   *   timeOf: when the payload's call really happened (the transcript record's time); the wall clock otherwise
+   *   startedAt: calls from before this (a catch-up read of history) earn nothing: they still open a failure, so a
+   *              fix made after the start pairs with it at its real times, but they send no fact
    */
-  constructor({ withSignals = true, now = () => Date.now(), io } = {}) {
+  constructor({ withSignals = true, now = () => Date.now(), io, timeOf, startedAt } = {}) {
     this.withSignals = withSignals
     this.now = now
     this.io = io
+    this.timeOf = timeOf
+    this.startedAt = Number.isFinite(startedAt) ? startedAt : null
     /** `${sessionId}\u0000${key}` -> { fails, firstAt, label } */
     this.failing = new Map()
+  }
+
+  /** When the call happened: the transcript's time if known and sane, else now. */
+  timeFor(p) {
+    const nowMs = this.now()
+    let t
+    try { t = this.timeOf?.(p) } catch {}
+    if (!Number.isFinite(t)) t = Number.isFinite(p.at) ? p.at : undefined
+    return Number.isFinite(t) && t > 0 && t <= nowMs + 60_000 ? t : nowMs
   }
 
   /** The facts one payload yields (often none). */
@@ -347,7 +428,9 @@ export class FactExtractor {
     const tool = p.tool_name
     const input = p.tool_input && typeof p.tool_input === 'object' ? p.tool_input : {}
     const ok = ev === 'PostToolUse'
-    const at = this.now()
+    const at = this.timeFor(p)
+    // A catch-up read of a turn that ran before the office started: remembered, never counted
+    const replayed = this.startedAt !== null && at < this.startedAt - 1000
     const sessionId = typeof p.session_id === 'string' ? p.session_id : undefined
     const id = typeof p.tool_use_id === 'string' ? p.tool_use_id : undefined
     const out = []
@@ -356,7 +439,7 @@ export class FactExtractor {
     if (!ok && p.is_interrupt) return []
     if (ok && response && typeof response === 'object' && response.interrupted === true) return []
 
-    if (tool === 'Bash') {
+    if (tool === 'Bash' && !replayed) {
       const background = input.run_in_background === true || (ok && response && typeof response === 'object' && typeof response.backgroundTaskId === 'string')
       for (const f of bashFacts({ command: input.command, ok, output: ok ? outputOf(response) : String(p.error ?? ''), cwd: p.cwd, at, background, withSignals: this.withSignals, io: this.io })) {
         out.push({ ...f, ...(id ? { id: `${id}:${f.kind}` } : {}) })
@@ -368,16 +451,19 @@ export class FactExtractor {
       if (k) {
         const mapKey = `${sessionId}\u0000${k.key}`
         this.prune(at)
+        const text = ok ? outputOf(response) : String(p.error ?? '')
         // A run whose own output says it failed (exit 0 piped through tail) is no fix
-        const quietFail = ok && tool === 'Bash' && /\b\d+ (failed|failing)\b|\bFAIL\b|Build failed|error TS\d+/.test(outputOf(response)) && !/\b0 (failed|failing)\b/.test(outputOf(response))
+        const quietFail = ok && (tool === 'Bash' || tool === 'PowerShell') && !k.probe && /\b[1-9]\d* (failed|failing)\b|\bFAIL\b|Build failed|error TS\d+/.test(text) && !/\b0 (failed|failing)\b/.test(text)
         if (!ok || quietFail) {
-          const prev = this.failing.get(mapKey)
-          this.failing.set(mapKey, { fails: (prev?.fails ?? 0) + 1, firstAt: prev?.firstAt ?? at, label: k.label })
+          if (quietFail || meaningfulFailure(tool, k, text)) {
+            const prev = this.failing.get(mapKey)
+            this.failing.set(mapKey, { fails: (prev?.fails ?? 0) + 1, firstAt: prev?.firstAt ?? at, label: k.label })
+          }
         } else {
           const prev = this.failing.get(mapKey)
           if (prev) {
             this.failing.delete(mapKey)
-            out.push({ kind: 'lesson', label: prev.label, fails: prev.fails, ms: Math.max(0, at - prev.firstAt), ...(id ? { id: `${id}:lesson` } : {}) })
+            if (!replayed) out.push({ kind: 'lesson', label: prev.label, fails: prev.fails, ms: Math.max(0, at - prev.firstAt), ...(id ? { id: `${id}:lesson` } : {}) })
           }
         }
       }

@@ -131,6 +131,14 @@ describe('createProgression: events from the office', () => {
     expect(t.p.snapshot().xp).toBe(XP_BASE.turn * DAILY_CAP_FACTOR)
   })
 
+  it('turns and workers the watcher replayed from history at start-up earn nothing', () => {
+    t.p.noteBroadcast({ type: 'session_turn_end', sessionId: S, promptId: 'old', replayed: true } as any)
+    t.p.noteBroadcast({ type: 'agent_completed', agentId: 'old-w', result: 'done', replayed: true } as any)
+    expect(t.p.snapshot().xp).toBe(0)
+    t.p.noteBroadcast({ type: 'session_turn_end', sessionId: S, promptId: 'live' })
+    expect(t.p.snapshot().xp).toBeGreaterThan(0)
+  })
+
   it('its own broadcasts are ignored (no loop)', () => {
     t.p.noteBroadcast({ type: 'progression_update', xp: 99999 } as any)
     t.p.noteBroadcast({ type: 'progression_award', award: { id: 'x' } } as any)

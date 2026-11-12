@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  splitSegments, programOf, labelOf, testOrBuild, decodeText, parseTesterIni, configArg, mt5RunInfo, bashFacts, lessonKey, FactExtractor,
+  splitSegments, programOf, labelOf, testOrBuild, decodeText, parseTesterIni, configArg, mt5RunInfo, bashFacts, lessonKey, FactExtractor, exitCodeOf, meaningfulFailure, normaliseCommand,
 } from '../server/progression-facts.js'
 
 const AT = Date.parse('2026-11-12T00:00:00Z')
@@ -102,7 +102,7 @@ describe('bashFacts: git, gh, metaeditor, tests', () => {
 describe('FactExtractor: lessons', () => {
   const bash = (command: string, ok: boolean, id: string, stdout = '') => ({
     hook_event_name: ok ? 'PostToolUse' : 'PostToolUseFailure', tool_name: 'Bash', tool_input: { command },
-    tool_response: ok ? { stdout, stderr: '', interrupted: false } : undefined, error: ok ? undefined : 'Exit code 1', tool_use_id: id, session_id: 's1', cwd: '/x',
+    tool_response: ok ? { stdout, stderr: '', interrupted: false } : undefined, error: ok ? undefined : 'Exit code 1\nError: 3 tests failed', tool_use_id: id, session_id: 's1', cwd: '/x',
   })
   it('a failure then the same command working is one lesson, with the fail count and time', () => {
     const clock = { t: AT }
@@ -132,7 +132,7 @@ describe('FactExtractor: lessons', () => {
   })
   it('an Edit that failed and then worked on the same file is a lesson labelled by file name only', () => {
     const x = new FactExtractor({ now: () => AT })
-    const edit = (ok: boolean, id: string) => ({ hook_event_name: ok ? 'PostToolUse' : 'PostToolUseFailure', tool_name: 'Edit', tool_input: { file_path: 'C:\\Users\\me\\EA\\SchoolRun.mq5', old_string: 'secret' }, tool_use_id: id, session_id: 's1' })
+    const edit = (ok: boolean, id: string) => ({ hook_event_name: ok ? 'PostToolUse' : 'PostToolUseFailure', tool_name: 'Edit', tool_input: { file_path: 'C:\\Users\\me\\EA\\SchoolRun.mq5', old_string: 'secret' }, tool_use_id: id, session_id: 's1', error: ok ? undefined : 'EACCES: permission denied, open SchoolRun.mq5' })
     x.facts(edit(false, 'a'))
     expect(x.facts(edit(true, 'b'))).toEqual([expect.objectContaining({ kind: 'lesson', label: 'Edit SchoolRun.mq5' })])
   })
@@ -142,6 +142,71 @@ describe('FactExtractor: lessons', () => {
     expect(x.facts({ ...bash('git commit -m x', true, 'b', '[main abc1234] x'), tool_response: { stdout: '[main abc1234] x', interrupted: true } })).toEqual([])
     expect(x.facts({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'git commit' } })).toEqual([])
     expect(x.facts(null)).toEqual([])
+  })
+  it('times come from the transcript, not the clock (a catch-up read arrives all at once)', () => {
+    const times = new Map<object, number>()
+    const x = new FactExtractor({ now: () => AT + 3600_000, timeOf: p => times.get(p) })
+    const a = bash('npm run build', false, 'a'); times.set(a, AT)
+    const b = bash('npm run build', true, 'b'); times.set(b, AT + 7 * 60_000)
+    x.facts(a)
+    expect(x.facts(b)).toEqual([expect.objectContaining({ kind: 'lesson', ms: 7 * 60_000, at: AT + 7 * 60_000 })])
+  })
+  it('calls from before the office started send nothing; a live fix of an older failure still counts, at real times', () => {
+    const times = new Map<object, number>()
+    const start = AT + 600_000
+    const x = new FactExtractor({ now: () => start + 60_000, timeOf: p => times.get(p), startedAt: start })
+    const f1 = bash('npm run build', false, 'a'); times.set(f1, AT)
+    const ok1 = bash('npm run build', true, 'b', 'built'); times.set(ok1, AT + 60_000)
+    x.facts(f1)
+    expect(x.facts(ok1)).toEqual([])                       // both before the start: replayed history
+    const commit = bash('git commit -m x', true, 'c', '[main abc1234] x'); times.set(commit, AT + 120_000)
+    expect(x.facts(commit)).toEqual([])                    // a replayed commit earns nothing either
+    const f2 = bash('npm test', false, 'd'); times.set(f2, start - 120_000)
+    const ok2 = bash('npm test', true, 'e', 'Tests 4 passed'); times.set(ok2, start + 30_000)
+    x.facts(f2)
+    expect(x.facts(ok2)).toEqual([expect.objectContaining({ kind: 'lesson', label: 'npm test', ms: 150_000 })])
+  })
+  it('only the same whole command pairs: the same script with other arguments is not a fix of this one', () => {
+    const x = new FactExtractor({ now: () => AT })
+    const fail = (command: string, id: string) => ({ ...bash(command, false, id), error: 'Exit code 2\nerror: unknown symbol' })
+    x.facts(fail('python fetch.py --symbol DAX40 --from 2019', 'a'))
+    expect(x.facts(bash('python fetch.py --symbol NAS100 --from 2019', true, 'b'))).toEqual([])
+    // the same command (white space and a leading cd aside) does
+    expect(x.facts(bash('cd /tmp &&  python fetch.py   --symbol DAX40 --from 2019', true, 'c'))).toEqual([expect.objectContaining({ kind: 'lesson', label: 'python fetch.py' })])
+  })
+  it('sed | cut (Jake\'s first four "lessons") never qualifies: probes only', () => {
+    const x = new FactExtractor({ now: () => AT })
+    x.facts({ ...bash("sed -n '1,5p' a.txt | cut -d, -f1", false, 'a'), error: 'Exit code 2\nsed: -e expression #1: unknown command' })
+    expect(x.facts(bash("sed -n '1,5p' a.txt | cut -d, -f1", true, 'b'))).toEqual([])
+  })
+  it('a search or listing that finds nothing, or an exit with no error, is no failure', () => {
+    const x = new FactExtractor({ now: () => AT })
+    x.facts({ ...bash('rg -n needle src', false, 'a'), error: 'Exit code 1' })
+    expect(x.facts(bash('rg -n needle src', true, 'b', 'src/x.ts:1:needle'))).toEqual([])
+    x.facts({ ...bash('ls build && head -3 build/x', false, 'c'), error: 'Exit code 2\nls: cannot access build: No such file or directory' })
+    expect(x.facts(bash('ls build && head -3 build/x', true, 'd', 'x'))).toEqual([])
+    x.facts({ ...bash('python owner.py', false, 'e'), error: 'Exit code 1' })
+    expect(x.facts(bash('python owner.py', true, 'f'))).toEqual([])
+  })
+  it('a script that crashed and then ran is a lesson labelled by the script name', () => {
+    const x = new FactExtractor({ now: () => AT })
+    x.facts({ ...bash('python C:\\EA\\tools\\owner_T2.py --plan p.json', false, 'a'), error: 'Exit code 1\nTraceback (most recent call last):\nKeyError: x' })
+    expect(x.facts(bash('python C:\\EA\\tools\\owner_T2.py --plan p.json', true, 'b'))).toEqual([expect.objectContaining({ kind: 'lesson', label: 'python owner_T2.py' })])
+  })
+  it('an Edit refused for bookkeeping (not read yet, text not found) is no lesson', () => {
+    const x = new FactExtractor({ now: () => AT })
+    const edit = (ok: boolean, id: string, error?: string) => ({ hook_event_name: ok ? 'PostToolUse' : 'PostToolUseFailure', tool_name: 'Edit', tool_input: { file_path: '/x/a.mq5' }, tool_use_id: id, session_id: 's1', error })
+    x.facts(edit(false, 'a', 'String to replace not found in file.'))
+    x.facts(edit(false, 'b', 'File has not been read yet. Read it first before writing to it.'))
+    expect(x.facts(edit(true, 'c'))).toEqual([])
+  })
+  it('exitCodeOf and meaningfulFailure', () => {
+    expect(exitCodeOf('Exit code 127\nbash: foo: command not found')).toBe(127)
+    expect(exitCodeOf('nothing')).toBeNull()
+    expect(meaningfulFailure('Bash', { probe: false } as any, 'Exit code 127\nbash: foo: command not found')).toBe(true)
+    expect(meaningfulFailure('Bash', { probe: false } as any, 'Exit code 1')).toBe(false)
+    expect(meaningfulFailure('Bash', { probe: true } as any, 'Exit code 2\nerror')).toBe(false)
+    expect(normaliseCommand('cd x &&   npm   test')).toBe('npm test')
   })
   it('lessonKey skips cd and setup segments', () => {
     expect(lessonKey('Bash', { command: 'cd "C:\\x" && npm test' })?.label).toBe('npm test')

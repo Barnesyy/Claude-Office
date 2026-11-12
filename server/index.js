@@ -2170,6 +2170,8 @@ app.post('/event', requireToken, (req, res) => {
     // Stop with a prompt-queue marker: the hook waits for a queued chat prompt (see Prompts from the chat)
     claim:            body.type === 'session_turn_end' && body.claim === true ? true : undefined,
     batch:            body.batch === true || undefined,
+    // Rebuilt by the transcript watcher from history read at start-up (shown, not counted by progression)
+    replayed:         body.replayed === true || undefined,
     count:            clampCount(body.count, 1000),
     oldCwd:           clampString(body.oldCwd, 400),
     fromModel:        clampString(body.fromModel, 80),
@@ -3440,6 +3442,7 @@ function applyEvent(body) {
         result: body.result,
         ...stats,
         ...(sessionId ? { sessionId } : {}),
+        ...(body.replayed ? { replayed: true } : {}),
         timestamp: Date.now(),
       }
     }
@@ -3634,6 +3637,7 @@ function applyEvent(body) {
         crons: main.crons,
         stopHookActive: body.stopHookActive === true,
         ...(row ? { messageId: row.id } : {}),
+        ...(body.replayed ? { replayed: true } : {}),
         main: { ...main },
         timestamp: now,
       }

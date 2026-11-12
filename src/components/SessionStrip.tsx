@@ -26,7 +26,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { Agent, SessionInfo } from '../types'
-import { mainId, isMainAgent, mainTone, mainPillText, shortModel, projectFromCwd, type PillTone } from '../mainState'
+import { mainId, isMainAgent, mainTone, mainPillText, shortModel, projectFromCwd, isStaleNeedsYou, needsYouSince, formatAge, type PillTone } from '../mainState'
 
 // Main-thread activity counts as "busy" for this long after the last tool call
 // (only used while no main record has arrived — an old server)
@@ -96,7 +96,8 @@ const SessionStrip: React.FC<SessionStripProps> = ({ sessions, agents }) => {
   const ordered = [...sessions].sort((a, b) =>
     (groupStart.get(projectGroup(a))! - groupStart.get(projectGroup(b))!) ||
     projectGroup(a).localeCompare(projectGroup(b)) ||
-    (a.state === 'ended' ? 1 : 0) - (b.state === 'ended' ? 1 : 0) || (a.startedAt ?? 0) - (b.startedAt ?? 0))
+    (a.state === 'ended' ? 1 : 0) - (b.state === 'ended' ? 1 : 0) ||
+    (isStaleNeedsYou(a, now) ? 1 : 0) - (isStaleNeedsYou(b, now) ? 1 : 0) || (a.startedAt ?? 0) - (b.startedAt ?? 0))
   const grouped = groupStart.size > 1
 
   return (
@@ -118,7 +119,12 @@ const SessionStrip: React.FC<SessionStripProps> = ({ sessions, agents }) => {
           const mainThreadBusy = !!session.lastStatusAt && now - session.lastStatusAt < BUSY_WINDOW_MS
           if (working.length > 0 || mainThreadBusy) tone = 'busy'
         }
-        const stateText = ended ? null : mainPillText(mainState, needsYou, waitingOn)
+        // How long its hand has been up; past 6 h it is stale: dimmed, and out of the strip's count
+        const handSince = !ended && mainState === 'needs-you' ? needsYouSince(session) : undefined
+        const stale = !ended && isStaleNeedsYou(session, now)
+        if (stale) tone = 'soft'
+        const baseText = ended ? null : mainPillText(mainState, needsYou, waitingOn)
+        const stateText = baseText && handSince ? `${baseText} · ${formatAge(now - handSince)}` : baseText
         const model = shortModel(session.model ?? claude?.model)
         const registryStatus = session.registry?.status
 
@@ -133,10 +139,11 @@ const SessionStrip: React.FC<SessionStripProps> = ({ sessions, agents }) => {
           <React.Fragment key={session.id}>
           {heading && <span className="session-group" data-project={group} title={`project: ${group}`}>{group}</span>}
           <div
-            className={`session-pill ${tone}${unhooked ? ' unhooked' : ''}`}
+            className={`session-pill ${tone}${unhooked ? ' unhooked' : ''}${stale ? ' stale' : ''}`}
             title={describe(session, claude, mine.length, working.length)}
             data-session-id={session.id}
             data-main-state={mainState ?? ''}
+            data-stale={stale ? 'true' : undefined}
             data-hooked={unhooked ? 'false' : 'true'}
           >
             <span className={`session-dot ${tone}`} title={unhooked && registryStatus ? registryStatus : undefined} />

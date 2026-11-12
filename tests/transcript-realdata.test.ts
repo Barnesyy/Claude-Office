@@ -142,6 +142,27 @@ describe('start-up on real files', () => {
     expect(events.find(e => e.type === 'session_started').source).toBe('resume')
   })
 
+  it('events rebuilt from records older than the watcher are marked replayed; new records are not', async () => {
+    const dir = claudeDir()
+    let now = T0 + 120_000
+    const file = join(dir, 'projects', ENC, `${SID}.jsonl`)
+    const rows: object[] = [user(60_000, wake('the current ask')), tool(60_100, 'b1', 'Bash', { command: 'npm test' }), result(61_000, 'b1', 'Tests 3 passed')]
+    write(file, rows)
+    utimesSync(file, new Date(now - 5000), new Date(now - 5000))
+    const { w, events } = watcher(dir, () => now)
+    w.tick(); await w.flush()
+    expect(events.length).toBeGreaterThan(0)
+    // (session_started comes before any record is read: it carries no time, and progression does not count it)
+    expect(events.filter(e => !e.replayed && e.type !== 'session_started').map(e => e.type)).toEqual([])
+    // A record written after the start is live
+    now += 10_000
+    rows.push(tool(130_000, 'b2', 'Bash', { command: 'npm run build' }))
+    write(file, rows)
+    w.tick(); await w.flush()
+    const live = events.filter(e => e.type === 'agent_working' && e.tool === 'Bash' && !e.replayed)
+    expect(live.length).toBe(1)
+  })
+
   it('a worker launched before the watcher started gets its own stand-in spawn, and a peer hand-back ends it', async () => {
     const dir = claudeDir()
     const now = T0 + 120_000

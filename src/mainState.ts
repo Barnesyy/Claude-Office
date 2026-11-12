@@ -135,13 +135,51 @@ export interface StripCounts {
   sessionsText: string
   notHookedText: string | null
   needYouText: string | null
+  /** Hard needs-you older than STALE_NEEDS_YOU_MS: counted on their own, not in needYou */
+  stale: SessionInfo[]
+  staleText: string | null
 }
 
-export function stripCounts(sessions: SessionInfo[]): StripCounts {
+/**
+ * A terminal that has sat at a dialog for hours is not news: Jake keeps old
+ * Claude Code windows open, and 18 of them "waiting" for a day drowned the
+ * real count. Past this age a needs-you goes to its own "stale" bucket.
+ */
+export const STALE_NEEDS_YOU_MS = 6 * 3600_000
+
+/** When this session's hand went up: the needs-you's own time, else the main state's, else its last activity. */
+export function needsYouSince(s: Pick<SessionInfo, 'main' | 'lastActivityAt' | 'startedAt'>): number | undefined {
+  const t = s.main?.needsYou?.since ?? s.main?.since ?? s.lastActivityAt ?? s.startedAt
+  return Number.isFinite(t) && (t as number) > 0 ? t : undefined
+}
+
+/** A hard needs-you (or a registry "waiting") that has waited longer than staleMs. */
+export function isStaleNeedsYou(s: Pick<SessionInfo, 'main' | 'lastActivityAt' | 'startedAt' | 'registry' | 'state'>, now = Date.now(), staleMs = STALE_NEEDS_YOU_MS): boolean {
+  if (s.state === 'ended') return false
+  const hand = (s.main?.state === 'needs-you' && isHardNeedsYou(s.main.needsYou)) || (!s.main && s.registry?.status === 'waiting')
+  if (!hand) return false
+  const since = needsYouSince(s)
+  return since !== undefined && now - since > staleMs
+}
+
+/** 45 000 → "45s", 720 000 → "12m", 3 h → "3h", 50 h → "2d" */
+export function formatAge(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m`
+  if (s < 48 * 3600) return `${Math.floor(s / 3600)}h`
+  return `${Math.floor(s / 86400)}d`
+}
+
+export function stripCounts(sessions: SessionInfo[], now = Date.now()): StripCounts {
   const live = sessions.filter(s => s.state !== 'ended')
   const notHooked = live.filter(s => s.hooked === false)
-  const needYou = live.filter(s => s.main?.state === 'needs-you' && isHardNeedsYou(s.main.needsYou))
+  const hands = live.filter(s => s.main?.state === 'needs-you' && isHardNeedsYou(s.main.needsYou))
+  const stale = hands.filter(s => isStaleNeedsYou(s, now))
+  const needYou = hands.filter(s => !stale.includes(s))
   return {
+    stale,
+    staleText: stale.length > 0 ? `${stale.length} stale (>6h)` : null,
     sessions: live.length,
     notHooked,
     needYou,

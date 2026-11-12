@@ -12,6 +12,7 @@
 import { useSyncExternalStore } from 'react'
 import type { Agent, OfficeEvent, SessionInfo } from './types'
 import type { ScreenKind } from './screens'
+import { isStaleNeedsYou, needsYouSince } from './mainState'
 
 export type StationStatus =
   | 'idle' | 'running' | 'compiling' | 'awaiting-report' | 'done' | 'report-missing' | 'failed'
@@ -299,9 +300,9 @@ export function wallMode(picked: WallMode | null, withContent: readonly WallMode
 // The Command Centre (paulrobello/claude-office's columns)
 // ---------------------------------------------------------------------------
 
-export type CentreColumn = 'needs-you' | 'working' | 'done' | 'ended'
+export type CentreColumn = 'needs-you' | 'working' | 'done' | 'stale' | 'ended'
 export const CENTRE_COLUMNS: ReadonlyArray<{ id: CentreColumn; title: string }> = [
-  { id: 'needs-you', title: 'Needs you' }, { id: 'working', title: 'Working' }, { id: 'done', title: 'Done' }, { id: 'ended', title: 'Ended' },
+  { id: 'needs-you', title: 'Needs you' }, { id: 'working', title: 'Working' }, { id: 'done', title: 'Done' }, { id: 'stale', title: 'Stale >6h' }, { id: 'ended', title: 'Ended' },
 ]
 
 export interface CentreCard {
@@ -316,16 +317,20 @@ export interface CentreCard {
 }
 
 /** Which column a session belongs in, from its main-thread record and the registry. */
-export function centreColumn(s: SessionInfo): CentreColumn {
+export function centreColumn(s: SessionInfo, now = Date.now()): CentreColumn {
   if (s.state === 'ended') return 'ended'
   const main = s.main?.state
-  if (main === 'needs-you' || main === 'error' || s.registry?.status === 'waiting') return 'needs-you'
+  if (main === 'needs-you' || main === 'error' || s.registry?.status === 'waiting') {
+    // A hand up for over 6 h is an old terminal at a dialog, not today's work
+    if (main !== 'error' && isStaleNeedsYou(s, now)) return 'stale'
+    return 'needs-you'
+  }
   if (main === 'working' || main === 'waiting' || main === 'compacting' || s.registry?.status === 'busy' || s.registry?.status === 'shell') return 'working'
   return 'done'
 }
 
 function centreLine(s: SessionInfo, column: CentreColumn): string {
-  if (column === 'needs-you') {
+  if (column === 'needs-you' || column === 'stale') {
     const n = s.main?.needsYou
     if (s.main?.state === 'error') return `error: ${s.main.error?.error ?? 'API error'}`
     if (n?.kind === 'permission' || n?.toolName) return `permission: ${n?.summary ?? n?.toolName ?? 'a tool'}`
@@ -337,18 +342,18 @@ function centreLine(s: SessionInfo, column: CentreColumn): string {
 }
 
 /** Every session as a card in its column, newest activity first. */
-export function centreCards(sessions: readonly SessionInfo[], agents: readonly Agent[] = []): Record<CentreColumn, CentreCard[]> {
-  const out: Record<CentreColumn, CentreCard[]> = { 'needs-you': [], working: [], done: [], ended: [] }
+export function centreCards(sessions: readonly SessionInfo[], agents: readonly Agent[] = [], now = Date.now()): Record<CentreColumn, CentreCard[]> {
+  const out: Record<CentreColumn, CentreCard[]> = { 'needs-you': [], working: [], done: [], stale: [], ended: [] }
   const sorted = [...sessions].sort((a, b) => (b.lastActivityAt ?? b.startedAt ?? 0) - (a.lastActivityAt ?? a.startedAt ?? 0))
   for (const s of sorted) {
-    const column = centreColumn(s)
+    const column = centreColumn(s, now)
     out[column].push({
       id: s.id,
       title: s.title || s.registry?.name || s.project || s.id.slice(0, 8),
       project: s.project,
       column,
       line: centreLine(s, column).replace(/\s+/g, ' ').slice(0, 120),
-      since: s.main?.since ?? s.lastActivityAt ?? s.startedAt,
+      since: column === 'needs-you' || column === 'stale' ? needsYouSince(s) : s.main?.since ?? s.lastActivityAt ?? s.startedAt,
       workers: agents.filter(a => a.sessionId === s.id && !a.id.startsWith('main-')).length,
     })
   }

@@ -26,7 +26,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { hookVerdict, initialHealth, HOOK_WARN_MS, type HealthState, type HookVerdict, type OfficeState, type ConnectionPhase } from '../officeReducer'
-import { needsYouLabel, stripCounts, type StripCounts } from '../mainState'
+import { formatAge, needsYouLabel, needsYouSince, stripCounts, type StripCounts } from '../mainState'
 import type { SessionInfo } from '../types'
 import { pillLabel } from './SessionStrip'
 import { officeHttpBase } from '../serverUrl'
@@ -131,13 +131,22 @@ function describe(h: HealthState, v: HookVerdict, now: number, c: StripCounts): 
     if (c.needYou.length > 0) {
       lines.push('Waiting on you:')
       for (const session of c.needYou) {
-        if (session.main?.needsYou) lines.push(`  ${pillLabel(session)} — ${needsYouLabel(session.main.needsYou)}`)
+        if (session.main?.needsYou) lines.push(`  ${pillLabel(session)} — ${needsYouLabel(session.main.needsYou)}${ageOf(session, now)}`)
       }
+    }
+    if (c.stale.length > 0) {
+      lines.push('Stale (waiting over 6 h, not in the count above):')
+      for (const session of c.stale) lines.push(`  ${pillLabel(session)}${ageOf(session, now)}`)
     }
     lines.push(`Server v${s.version}, up ${formatSpan(s.uptimeMs + Math.max(0, now - (h.reportedAt ?? now)))} · UI: ${s.uiAvailable ? 'built (dist/)' : 'dev server (dist/ not built)'}`)
   }
   lines.push(`Diagnose: ${DOCTOR_CMD}`)
   return lines.filter(Boolean).join('\n')
+}
+
+function ageOf(session: SessionInfo, now: number): string {
+  const since = needsYouSince(session)
+  return since ? ` · ${formatAge(now - since)}` : ''
 }
 
 const StatusStrip: React.FC<StatusStripProps> = ({ office, sessions = [], readOnly = false }) => {
@@ -167,7 +176,7 @@ const StatusStrip: React.FC<StatusStripProps> = ({ office, sessions = [], readOn
   const pill = hooksPill(v)
   const s = h.server
   const down = h.connection === 'offline' || h.connection === 'reconnecting'
-  const c = stripCounts(sessions)
+  const c = stripCounts(sessions, view.now)
 
   return (
     <>
@@ -200,6 +209,7 @@ const StatusStrip: React.FC<StatusStripProps> = ({ office, sessions = [], readOn
             {c.sessionsText}
             {c.notHookedText && <><span className="strip-mid">·</span><span className="strip-unhooked">{c.notHookedText}</span></>}
             {c.needYouText && <><span className="strip-mid">·</span><span className="strip-needs-you">{c.needYouText}</span></>}
+            {c.staleText && <><span className="strip-mid">·</span><span className="strip-stale" data-testid="strip-stale" title={`Waiting over 6 h (old terminals at a dialog), not counted as needing you:\n${c.stale.map(x => `${pillLabel(x)}${ageOf(x, view.now)}`).join('\n')}`}>{c.staleText}</span></>}
           </span>
         </>
       )}

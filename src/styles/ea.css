@@ -258,7 +258,7 @@
 .cc-count { font-size: 9px; color: #8a7a58; }
 .cc-close { margin-left: auto; background: none; border: 0; color: #8a7a58; font-size: 16px; line-height: 1; cursor: pointer; }
 .cc-close:hover { color: #f4d58a; }
-.cc-cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 9px; overflow: auto; }
+.cc-cols { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; padding: 9px; overflow: auto; }
 .cc-col { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .cc-col-head { display: flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; color: #c9c1a4; }
 .cc-n { margin-left: auto; padding: 0 5px; border-radius: 6px; background: #2a281c; color: #a99d78; font-size: 8px; }
@@ -318,3 +318,7 @@
 .wall-zoom-tick.good { color: #7ed36b; }
 .wall-zoom-tick.bad { color: #ff7a6b; }
 .wall-zoom-tick.warn { color: #e3b35c; }
+
+/* Needs-you older than 6 h (src/mainState.ts isStaleNeedsYou): old terminals at a dialog */
+.cc-stale .cc-dot  { background: #8a6d3b; }
+.cc-stale .cc-card { border-left-color: #8a6d3b; opacity: 0.75; }
