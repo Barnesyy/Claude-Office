@@ -70,9 +70,7 @@ export const COLUMN_MAX = 6
 /**
  * Where the board's writing surface sits in the room art, in % of the room
  * (the room container keeps the art's aspect, 1508×1126). Measured from the
- * whiteboard's white area in public/rooms/office-day.png — the Dunder Mifflin
- * room (office-day-dm.png) puts its board at the same place to within a tenth
- * of a percent: the left edge at x 74.85 %, its top at y 26.1 % and its height
+ * whiteboard's white area in public/rooms/office-day.png: the left edge at x 74.85 %, its top at y 26.1 % and its height
  * 9.9 % of the room, the right edge at x 85.45 %; the wall recedes, so the top
  * edge drops 0.427 px per px to the right (skewY 23.1°). The 'kanban-board'
  * hotspot (80 %, 42 %) sits just under its bottom edge.

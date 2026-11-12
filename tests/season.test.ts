@@ -337,9 +337,9 @@ describe('seasonalUrl: with no seasonal art in public/ at all', () => {
   beforeEach(() => _resetSeasonProbesForTests())
 
   const URLS = [
-    '/rooms/office-day.png', '/rooms/office-night.png', '/rooms/office-day-dm.png', '/rooms/office-night-dm.png',
+    '/rooms/office-day.png', '/rooms/office-night.png', '/rooms/server-room-day.webp', '/rooms/server-room-night.webp',
     '/sprites/furniture/standing-desk-left-front.png', '/sprites/decoration/monstera-plant.png',
-    '/sprites/characters/Claude-1-front-left.png', '/sprites/office/characters/jim-halpert-rear-right.png',
+    '/sprites/characters/Claude-1-front-left.png', '/sprites/characters/dev-2-rear-right.png',
   ]
   const LOOKS: SeasonLook[] = [
     ...HOLIDAYS.flatMap(h => QUARTERS.map(q => ({ holiday: h, quarter: q }))),

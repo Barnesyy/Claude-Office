@@ -32,7 +32,7 @@ const GROW = 1.04
 // Why 1 degree: at office size a degree or two is all a head's tilt needs
 const TURN = 1
 const CARD_H = 320
-const DIRS = ['/sprites/characters', '/sprites/office/characters']
+const DIRS = ['/sprites/characters']
 const FACINGS = ['front-left', 'front-right', 'rear-left', 'rear-right']
 
 type Tab = 'mask' | HatKind

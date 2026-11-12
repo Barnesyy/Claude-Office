@@ -42,7 +42,7 @@ import PhoneOffice from './components/PhoneOffice'
 import { pickEvent } from './events'
 import { getInteraction } from './interactions'
 import {
-  useTheme, getRoomImage, getAngelaCat, getTheme, themedDisplayName,
+  useTheme, getRoomImage, getTheme, themedDisplayName,
   OFFICE_SIM_TOOL_MESSAGES, OFFICE_SIM_BOSS_PROMPTS,
   assignCharacterToRole, releaseRole, nextUnusedOfficeCharacter, displayNameFromSlug,
 } from './theme'
@@ -94,7 +94,7 @@ const isPhoneFull = isPhoneFullPage && !isSimMode
 // Why nothing connects without the secret: the listener refuses the socket
 // (401) and the page would retry for ever; PhoneOffice says where the link is
 const phoneHasSecret = pagePhoneSecret !== null
-// Why: allow ?theme=office on demo/sim URLs to preload Dunder Mifflin mode
+// Why: allow ?theme=office on demo/sim URLs to preload the Trading Floor theme
 import { setTheme as _setTheme } from './theme'
 if (params.get('theme') === 'office') { _setTheme('office') }
 // Why at module load: the ambient bed starts on mount and must start at the
@@ -286,37 +286,33 @@ const SIM_CHATTER = [
   { sender: 'Antony', role: 'boss', msg: 'how are we looking on the dashboard?' },
 ]
 
-// Dunder Mifflin themed chatter — used when /the-office is active
+// Trading Floor chatter — used when /trading-floor is active
 const OFFICE_SIM_CHATTER = [
-  { sender: 'Debugger', role: 'debugger', msg: 'found a bug in the system — Creed. again.' },
-  { sender: 'Frontend', role: 'frontend-developer', msg: 'new catalog brochure looks cleaner than Dwight\'s desk' },
-  { sender: 'Security', role: 'security-auditor', msg: 'heads up — Dwight is conducting another surprise fire drill' },
-  { sender: 'Reviewer', role: 'code-reviewer', msg: 'the ream count checks out. approved.' },
-  { sender: 'DBA', role: 'database-architect', msg: 'indexed the client list alphabetically. like the old days.' },
-  { sender: 'DevOps', role: 'devops-engineer', msg: 'loading the delivery truck — Schrute beet vans.' },
-  { sender: 'Claude', role: 'assistant', msg: 'Michael is in the conference room. again. please help.' },
-  { sender: 'Tester', role: 'test-engineer', msg: 'tested the paper quality. still paper. 94% paper.' },
-  { sender: 'PerfEng', role: 'performance-engineer', msg: 'the printer warms up 200ms faster. small wins.' },
-  { sender: 'Frontend', role: 'frontend-developer', msg: 'mobile layout works — even Creed noticed' },
-  { sender: 'Claude', role: 'assistant', msg: 'someone get the printer, it\'s on fire. literal fire.' },
-  { sender: 'Architect', role: 'architect-reviewer', msg: 'the Finer Things Club charter is immaculate' },
-  { sender: 'AI Eng', role: 'ai-engineer', msg: 'teaching the copier to recognize Stanley\'s handwriting' },
-  { sender: 'TS Pro', role: 'typescript-pro', msg: 'false. that is not a staple. it is a Dwight.' },
-  { sender: 'Antony', role: 'boss', msg: "anyone want to go to Chili's? I got Baby Back Ribs on the brain." },
-  { sender: 'Antony', role: 'boss', msg: 'ship it. we\'ll fix it in prod. PARKOUR!' },
-  { sender: 'Antony', role: 'boss', msg: 'how many reams did we move today?' },
-  { sender: 'Antony', role: 'boss', msg: "I'm not superstitious, but I am a little stitious." },
-  { sender: 'Debugger', role: 'debugger', msg: 'Bears. Beets. Battlestar Galactica.' },
-  { sender: 'Security', role: 'security-auditor', msg: 'Identity theft is not a joke, Jim! Millions of families suffer every year!' },
-  { sender: 'Reviewer', role: 'code-reviewer', msg: "that's what she said" },
-  { sender: 'Frontend', role: 'frontend-developer', msg: 'I feel God in this Chili\'s tonight' },
-  { sender: 'Tester', role: 'test-engineer', msg: 'Would I rather be feared or loved? Easy. Both.' },
-  { sender: 'DevOps', role: 'devops-engineer', msg: 'I declare BANKRUPTCY' },
+  { sender: 'Debugger', role: 'debugger', msg: 'found it — the Monday rule skipped a bank holiday' },
+  { sender: 'Frontend', role: 'frontend-developer', msg: 'equity wall redesign is in, drawdown in red' },
+  { sender: 'Security', role: 'security-auditor', msg: 'heads up — the broker password is in a .set file again' },
+  { sender: 'Reviewer', role: 'code-reviewer', msg: 'the lot rounding change checks out. approved.' },
+  { sender: 'DBA', role: 'database-architect', msg: 'tick store reindexed, 2013 onwards' },
+  { sender: 'DevOps', role: 'devops-engineer', msg: 'MT5 agents restarted on the 3080 box' },
+  { sender: 'Claude', role: 'assistant', msg: 'the optimiser has been running for an hour. still going.' },
+  { sender: 'Tester', role: 'test-engineer', msg: 'real ticks vs OHLC: 0.4% apart. good.' },
+  { sender: 'PerfEng', role: 'performance-engineer', msg: 'backtest 12% faster with the cached spreads' },
+  { sender: 'Frontend', role: 'frontend-developer', msg: 'mobile layout works — the trade log too' },
+  { sender: 'Claude', role: 'assistant', msg: 'someone check the tester, it froze on March 2020' },
+  { sender: 'Architect', role: 'architect-reviewer', msg: 'one sizing function, one source of truth' },
+  { sender: 'AI Eng', role: 'ai-engineer', msg: 'features only use data known at decision time now' },
+  { sender: 'TS Pro', role: 'typescript-pro', msg: 'typed the trade journal. no more NaN lots.' },
+  { sender: 'Antony', role: 'boss', msg: 'green month — pizza in the break room' },
+  { sender: 'Antony', role: 'boss', msg: 'demo first. never straight to live.' },
+  { sender: 'Antony', role: 'boss', msg: 'how many backtests did we finish today?' },
+  { sender: 'Antony', role: 'boss', msg: 'what does the drawdown look like at 2%?' },
+  { sender: 'Debugger', role: 'debugger', msg: 'look-ahead bias: found and fixed.' },
+  { sender: 'Security', role: 'security-auditor', msg: 'rotate the webhook secret, it never expires.' },
 ]
 
 const App: React.FC = () => {
   // All hooks must be at the top — before any conditional returns.
-  const theme = useTheme() // Why: re-render rooms + agents when /the-office toggles
+  const theme = useTheme() // Why: re-render rooms + agents when /trading-floor toggles
   useSeasonArt() // Why: re-render when a seasonal room or avatar file turns out to exist
   const variant = useVariant() // Why: forced night + incident overlays while prod is down
   // The office state machine (src/officeReducer.ts) lives in a ref that every
@@ -905,7 +901,7 @@ const App: React.FC = () => {
               id: `dm-${slotIdx}-${Date.now()}`,
               name: displayName,
               role, // synthetic — so castByRole maps uniquely
-              task: `Dunder Mifflin — ${displayName}`,
+              task: `Trading Floor — ${displayName}`,
             },
           })
         }, initialDelay))
@@ -930,7 +926,7 @@ const App: React.FC = () => {
           handleEvent({
             type: 'agent_completed',
             agentId: agent.id,
-            result: `${agent.name} heading out for a pretzel`,
+            result: `${agent.name} heading out for a coffee`,
           })
         }
 
@@ -1069,7 +1065,7 @@ const App: React.FC = () => {
     timers.push(setTimeout(() => {
       let chatterIdx = 0
       const chatterInterval = setInterval(() => {
-        // Why: pool chosen at fire time so /the-office toggle mid-sim swaps the chatter instantly
+        // Why: pool chosen at fire time so a /trading-floor toggle mid-sim swaps the chatter instantly
         const pool = getTheme() === 'office' ? OFFICE_SIM_CHATTER : SIM_CHATTER
         if (chatterIdx >= pool.length) {
           chatterIdx = 0 // loop
@@ -1178,7 +1174,7 @@ const App: React.FC = () => {
     }, 8000))
 
     // 16s: Realistic tool output messages in Slack.
-    // Why: swap to Office-themed chatter when /the-office mode is on at sim start
+    // Why: swap to Office-themed chatter when /trading-floor is on at sim start
     const isOfficeSim = getTheme() === 'office'
     const defaultToolMessages = [
       { t: 16000, sender: 'Security', role: 'security-auditor', text: '⚡ reading src/auth/middleware.ts' },
@@ -1213,7 +1209,7 @@ const App: React.FC = () => {
       const cfg = AGENT_CONFIGS['security-auditor'] ?? AGENT_CONFIGS['default']
       addMsg('Security', 'security-auditor', cfg.color,
         isOfficeSim
-          ? 'critical — Dwight-level bad. any XSS gives full account takeover. moving to httpOnly cookies now'
+          ? 'critical — margin-call bad. any XSS gives full account takeover. moving to httpOnly cookies now'
           : 'critical — any XSS gives full account takeover. moving to httpOnly cookies now')
     }, 27500))
 
@@ -1221,7 +1217,7 @@ const App: React.FC = () => {
     timers.push(setTimeout(() => {
       const cfg = AGENT_CONFIGS['frontend-developer'] ?? AGENT_CONFIGS['default']
       addMsg('Frontend', 'frontend-developer', cfg.color,
-        isOfficeSim ? 'I can handle the cookie migration — easier than organizing the Dundies' : 'I can handle the cookie migration on the client side')
+        isOfficeSim ? 'I can handle the cookie migration — easier than a walk-forward' : 'I can handle the cookie migration on the client side')
     }, 30000))
 
     timers.push(setTimeout(() => {
@@ -1246,9 +1242,9 @@ const App: React.FC = () => {
     // 38s: Pizza delivery event!
     timers.push(setTimeout(() => {
       addMsg('system', 'default', '#8b8d91',
-        officeSim0 ? '🥨 IT\'S PRETZEL DAY' : '🍕 Pizza has arrived! Free lunch!', true)
+        officeSim0 ? '🍕 Green month — pizza is here!' : '🍕 Pizza has arrived! Free lunch!', true)
       addMsg(bossCfg.title, BOSS_ROLE, bossCfg.color,
-        officeSim0 ? "You don't understand. It's pretzel day." : 'Pizza in the lobby!')
+        officeSim0 ? "Green month. Pizza's on the desk." : 'Pizza in the lobby!')
       // Move all agents to door
       updateAgents(prev => prev.map(a => ({
         ...a,
@@ -1269,11 +1265,11 @@ const App: React.FC = () => {
       }, 5000))
     }, 38000))
 
-    // 45s: Agent chatter after pizza/pretzels
+    // 45s: Agent chatter after pizza
     timers.push(setTimeout(() => {
       const cfg = AGENT_CONFIGS['security-auditor'] ?? AGENT_CONFIGS['default']
       addMsg('Security', 'security-auditor', cfg.color,
-        officeSim0 ? 'all the toppings. Stanley has been waiting all year.' : 'pineapple on pizza is a security vulnerability')
+        officeSim0 ? 'all the toppings. green month.' : 'pineapple on pizza is a security vulnerability')
     }, 46000))
 
     timers.push(setTimeout(() => {
@@ -1288,7 +1284,7 @@ const App: React.FC = () => {
         type: 'agent_completed',
         agentId: 'vid-security',
         result: officeSim0
-          ? 'Audit complete — beets secured. 3 critical issues booked into the Schrute Manual.'
+          ? 'Audit complete — 3 critical issues logged in the risk register.'
           : 'Auth audit complete — 3 critical issues fixed, 2 PRs merged',
       })
     }, 48000))
@@ -1298,7 +1294,7 @@ const App: React.FC = () => {
       handleEvent({
         type: 'agent_completed',
         agentId: 'vid-explore',
-        result: officeSim0 ? 'Found 8 auth files — all filed under B for "Beet".' : 'Found 8 auth-related files, all updated',
+        result: officeSim0 ? 'Found 8 auth files — all logged in the risk register.' : 'Found 8 auth-related files, all updated',
       })
     }, 52000))
 
@@ -1315,7 +1311,7 @@ const App: React.FC = () => {
 
     timers.push(setTimeout(() => {
       handleEvent({ type: 'agent_completed', agentId: 'vid-frontend',
-        result: officeSim0 ? 'Cookies deployed — Kevin took half for his chili.' : 'Cookie migration deployed to staging' })
+        result: officeSim0 ? 'Cookies deployed — demo account first.' : 'Cookie migration deployed to staging' })
     }, 60000))
 
     return () => timers.forEach(t => clearTimeout(t))
@@ -1677,35 +1673,6 @@ const App: React.FC = () => {
               />
             )
           })}
-
-          {/* Angela's cat — follows whoever is cast as Angela in Office theme */}
-          {(() => {
-            const angela = getAngelaCat()
-            if (!angela) return null
-            const host = agents.find(a => a.role === angela.role)
-            // Why: the cat follows its host out of the room, so it is only here while the host is
-            if (!host || roomOf(host) !== viewRoom) return null
-            return (
-              <ResilientImg
-                src={angela.catSprite}
-                alt="cat"
-                className="angela-cat"
-                style={{
-                  position: 'absolute',
-                  left: `${host.position.x + 2.2}%`,
-                  top: `${host.position.y}%`,
-                  // Why: cats are 30-40% of ~78px character = ~24-30px tall
-                  height: 28,
-                  width: 'auto',
-                  transform: 'translate(-50%, -10%)',
-                  zIndex: Math.round(host.position.y) + 1,
-                  pointerEvents: 'none',
-                  filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.4))',
-                }}
-                draggable={false}
-              />
-            )
-          })()}
 
           {/* Boss interaction effect */}
           {bossEffect && officeInView && (() => {

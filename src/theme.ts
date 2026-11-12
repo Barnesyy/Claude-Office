@@ -1,4 +1,4 @@
-/** theme.ts — Office TV theme pack (characters, rooms, chatter, names, events) */
+/** theme.ts — the Trading Floor theme pack (cast names, props, chatter) */
 
 import { seasonalUrl } from './season'
 import { useSyncExternalStore } from 'react'
@@ -6,28 +6,40 @@ import { getVariant, pickIncidentLine, type IncidentLineKind } from './incident'
 
 export type ThemeName = 'default' | 'office'
 
-// Why: 27 Office characters — shuffle-dealt to roles. Sprites live at
-// /sprites/office/characters/{slug}-{front|rear}-{left|right}.png
+// The Trading Floor skin (EA fork). It replaces the upstream Dunder Mifflin
+// fan-art skin, which is excluded from the MIT licence (NOTICE.md), with an
+// original, trading-desk themed cast. The theme id stays 'office' so stored
+// settings, ?theme=office and the code paths keep working.
+//
+// The cast are names, not new sprites: every desk keeps the MIT default
+// sprite of its role (getCharacterBaseForRole returns the default base), so
+// the office looks exactly like upstream's own art. Each persona gets a
+// trading prop over its desk (public/sprites/trading/props, original art).
 const OFFICE_CHARACTERS = [
-  'andy-bernard', 'angela-martin', 'bob-vance', 'carol-stills',
-  'creed-bratton', 'darryl-philbin', 'david-wallace', 'dwight-schrute',
-  'erin-hannon', 'gabe-lewis', 'holly-flax', 'jan-levinson',
-  'jim-halpert', 'karen-filippelli', 'kelly-kapoor', 'kevin-malone',
-  'meredith-palmer', 'michael-scott', 'nellie-bertram', 'oscar-martinez',
-  'pam-beesly', 'phyllis-vance', 'robert-california', 'roy-anderson',
-  'ryan-howard', 'stanley-hudson', 'toby-flenderson',
+  'quinn-quant', 'rory-risk', 'tess-tester', 'max-execution', 'bea-backtests',
+  'dex-data', 'ivy-ideas', 'sol-strategy', 'kit-infra', 'lou-logs',
+  'remy-research', 'nia-newsdesk', 'otto-optimiser', 'vera-validation',
+  'cam-compliance', 'pip-pricing', 'faye-fills', 'gus-gaps', 'hal-hedging',
+  'jo-journal', 'lars-latency', 'mo-montecarlo',
 ] as const
 
-const OFFICE_CATS = [
-  'cat-bandit', 'cat-bandits-kittens', 'cat-comstock', 'cat-comstock-alt',
-  'cat-ember', 'cat-garbage', 'cat-mr-ash', 'cat-mr-ash-alt',
-  'cat-phillip', 'cat-princess-lady', 'cat-princess-lady-alt', 'cat-sprinkles',
-]
+/** Display names: "Quinn (Quant)" */
+const OFFICE_NAMES: Record<string, string> = {
+  'quinn-quant': 'Quinn (Quant)', 'rory-risk': 'Rory (Risk)', 'tess-tester': 'Tess (Tester)',
+  'max-execution': 'Max (Execution)', 'bea-backtests': 'Bea (Backtests)', 'dex-data': 'Dex (Data)',
+  'ivy-ideas': 'Ivy (Ideas)', 'sol-strategy': 'Sol (Strategy)', 'kit-infra': 'Kit (Infra)',
+  'lou-logs': 'Lou (Logs)', 'remy-research': 'Remy (Research)', 'nia-newsdesk': 'Nia (News desk)',
+  'otto-optimiser': 'Otto (Optimiser)', 'vera-validation': 'Vera (Validation)', 'cam-compliance': 'Cam (Compliance)',
+  'pip-pricing': 'Pip (Pricing)', 'faye-fills': 'Faye (Fills)', 'gus-gaps': 'Gus (Gaps)',
+  'hal-hedging': 'Hal (Hedging)', 'jo-journal': 'Jo (Journal)', 'lars-latency': 'Lars (Latency)',
+  'mo-montecarlo': 'Mo (Monte Carlo)',
+  'desk-head': 'Desk Head', 'claude-analyst': 'Claude (Analyst)',
+}
 
 // Fixed casting by role — same character used for Slack avatar AND room sprite
 const FIXED_ROLE_CASTING: Record<string, string> = {
-  boss: 'michael-scott',
-  assistant: 'jim-halpert',
+  boss: 'desk-head',
+  assistant: 'claude-analyst',
 }
 
 interface ThemeState {
@@ -35,8 +47,6 @@ interface ThemeState {
   // Role → Office character slug. Keyed by role so SlackChat (role) and
   // Character.tsx (agent.role) resolve to the same cast.
   castByRole: Record<string, string>
-  angelaRole: string | null
-  angelaCat: string | null
 }
 
 // Why: declared before `state` — loadInitial() runs at module load and reads them
@@ -47,21 +57,20 @@ let state: ThemeState = loadInitial()
 const listeners = new Set<() => void>()
 
 function loadInitial(): ThemeState {
-  const base: ThemeState = { name: 'default', castByRole: {}, angelaRole: null, angelaCat: null }
+  const base: ThemeState = { name: 'default', castByRole: {} }
   try {
     const saved = localStorage.getItem(THEME_KEY)
     if (saved === 'office') base.name = 'office'
-    // Why: the cast is restored with the theme so a reload (or /the-office
+    // Why: the cast is restored with the theme so a reload (or /trading-floor
     // off → on) keeps every role's character instead of re-dealing (C47)
     const cast = JSON.parse(localStorage.getItem(CAST_KEY) ?? 'null')
     if (cast && typeof cast === 'object' && cast.castByRole && typeof cast.castByRole === 'object') {
       const castByRole: Record<string, string> = {}
       for (const [role, slug] of Object.entries(cast.castByRole)) {
-        if (typeof slug === 'string' && (OFFICE_CHARACTERS as readonly string[]).includes(slug)) castByRole[role] = slug
+        // Why: a cast saved by the old skin (or anything unknown) is dropped and re-dealt
+        if (typeof slug === 'string' && slug in OFFICE_NAMES) castByRole[role] = slug
       }
       base.castByRole = castByRole
-      base.angelaRole = typeof cast.angelaRole === 'string' && castByRole[cast.angelaRole] === 'angela-martin' ? cast.angelaRole : null
-      base.angelaCat = base.angelaRole && typeof cast.angelaCat === 'string' && OFFICE_CATS.includes(cast.angelaCat) ? cast.angelaCat : null
     }
   } catch {}
   return base
@@ -70,7 +79,7 @@ function loadInitial(): ThemeState {
 function persist() {
   try {
     localStorage.setItem(THEME_KEY, state.name)
-    localStorage.setItem(CAST_KEY, JSON.stringify({ castByRole: state.castByRole, angelaRole: state.angelaRole, angelaCat: state.angelaCat }))
+    localStorage.setItem(CAST_KEY, JSON.stringify({ castByRole: state.castByRole }))
   } catch {}
 }
 
@@ -116,9 +125,11 @@ export function useTheme(): ThemeName {
 
 function dealt(): Set<string> { return new Set(Object.values(state.castByRole)) }
 
-/** Assign (or return existing) Office character for a role. Same for SlackChat & Character. */
-export function getCharacterBaseForRole(role: string, defaultBase: string): string {
-  if (state.name !== 'office') return defaultBase
+/**
+ * The Trading Floor persona dealt to a role (dealt on first ask, kept after).
+ * Same for SlackChat & Character.
+ */
+export function castForRole(role: string): string {
   if (state.castByRole[role]) return state.castByRole[role]
 
   // Fixed casting wins
@@ -135,24 +146,25 @@ export function getCharacterBaseForRole(role: string, defaultBase: string): stri
   )
   const pool = OFFICE_CHARACTERS.filter(c => !used.has(c) && !reservedNotYetUsed.has(c))
   // Fallback when all 22 are dealt: reuse an existing non-fixed cast slug.
-  // Why: prevents duplicating boss (Michael) or assistant (Jim) on screen when chat roles overflow.
+  // Why: prevents duplicating the boss or the assistant on screen when chat roles overflow.
   const fixedSet = new Set(Object.values(FIXED_ROLE_CASTING))
   const nonFixedUsed = [...used].filter(c => !fixedSet.has(c))
   const chosen = pool.length > 0
     ? pick(pool as string[])
-    : (nonFixedUsed.length > 0 ? pick(nonFixedUsed) : OFFICE_CHARACTERS[2]) // Why: [2] is not Michael/Jim
+    : (nonFixedUsed.length > 0 ? pick(nonFixedUsed) : OFFICE_CHARACTERS[2]) // Why: any non-fixed persona
   state.castByRole[role] = chosen
-
-  if (chosen === 'angela-martin') {
-    state.angelaRole = role
-    state.angelaCat = pick(OFFICE_CATS)
-  }
   persist()
   return chosen
 }
 
+/** The sprite base for a role: always the MIT default sprite (the Trading Floor deals names and props, not art). */
+export function getCharacterBaseForRole(role: string, defaultBase: string): string {
+  if (state.name === 'office') castForRole(role)
+  return defaultBase
+}
+
 export function getSpriteDir(): string {
-  return state.name === 'office' ? '/sprites/office/characters' : '/sprites/characters'
+  return '/sprites/characters'
 }
 
 /** Kept signature-compatible for existing callers — agentId ignored; role is the key. */
@@ -165,21 +177,13 @@ export function getSpritePath(_agentId: string, role: string, defaultBase: strin
 }
 
 export function getRoomImage(phase: 'day' | 'night'): string {
-  if (state.name === 'office') {
-    return seasonalUrl(phase === 'night' ? '/rooms/office-night-dm.png' : '/rooms/office-day-dm.png')
-  }
+  // The Trading Floor uses upstream's own (MIT) rooms
   return seasonalUrl(phase === 'night' ? '/rooms/office-night.png' : '/rooms/office-day.png')
 }
 
-/** Returns the ROLE currently cast as Angela (if any), plus cat sprite path. */
-export function getAngelaCat(): { role: string; catSprite: string } | null {
-  if (state.name !== 'office' || !state.angelaRole || !state.angelaCat) return null
-  return { role: state.angelaRole, catSprite: `/sprites/office/cats/${state.angelaCat}.png` }
-}
-
-/** Human-readable display name for a slug (e.g. "michael-scott" → "Michael Scott") */
+/** Human-readable display name for a slug ("quinn-quant" → "Quinn (Quant)") */
 function slugToName(slug: string): string {
-  return slug.split('-').map(p => p[0].toUpperCase() + p.slice(1)).join(' ')
+  return OFFICE_NAMES[slug] ?? slug.split('-').map(p => p[0].toUpperCase() + p.slice(1)).join(' ')
 }
 
 /** Swap sender display name to the cast Office character when theme is active. */
@@ -188,8 +192,7 @@ export function themedDisplayName(role: string, fallback: string): string {
   const cast = state.castByRole[role]
   if (!cast) {
     // Force-assign so the name matches the avatar on first render
-    const base = getCharacterBaseForRole(role, '')
-    return slugToName(base)
+    return slugToName(castForRole(role))
   }
   return slugToName(cast)
 }
@@ -197,41 +200,41 @@ export function themedDisplayName(role: string, fallback: string): string {
 // ===== THEMED CHATTER POOLS =====
 
 const OFFICE_SPAWN = [
-  'Identity theft is not a joke, Jim!',
-  'reporting to Scranton branch',
-  'paper, paper, paper',
-  'Bears. Beets. Battlestar Galactica.',
-  'D to the U to the N to the...',
-  'I am Beyoncé, always.',
-  'clocked in, Dunder Mifflin style',
+  'logged in to the trading floor',
+  'tester agents warming up',
+  'pulling the latest ticks',
+  'checking the economic calendar',
+  'coffee, then the DAX open',
+  'risk limits loaded',
+  'MT5 terminal is up',
 ]
 const OFFICE_WORK = [
-  'selling paper',
-  'processing reams',
-  'false. black bears.',
-  'Schrute bucks awarded',
-  'negotiating with corporate',
-  'filing TPS reports',
-  'Finer Things Club newsletter',
+  'running the real-ticks backtest',
+  'sizing the next trade',
+  'checking the drawdown',
+  'reconciling fills',
+  'reading the tester journal',
+  'walking forward',
+  'comparing against the baseline',
 ]
 const OFFICE_DONE = [
-  "that's what she said",
-  'boom. roasted.',
-  'PR shipped like 24lb bond',
-  "World's Best Boss approves",
-  'closed the deal',
-  'merged — Jim-approved',
+  'green across the board',
+  'baseline reproduced',
+  'risk checks pass',
+  'logged in the ledger',
+  'no look-ahead found',
+  'merged after the walk-forward',
 ]
 const OFFICE_COFFEE = [
-  'grande latte from Jim',
-  "Kevin's famous chili break",
-  'pretzel day!',
+  'coffee before the open',
+  'espresso, the tester is slow',
+  'refill while the optimiser runs',
   'brb, break room',
 ]
 const OFFICE_WATER = [
-  'hydration — Angela says water only',
-  "Stanley says it's almost 5",
-  'filling up, then pretzel',
+  'water while the ticks load',
+  'hydrate, the session is long',
+  'quick break before the close',
   'break room run',
 ]
 
@@ -253,8 +256,8 @@ const DEFAULT_WATER = [
   'hydration check', 'quick water break',
 ]
 
-// Pool order: incident variant (while active) → theme → default. Under
-// Dunder Mifflin + incident it is 50/50 so Michael stays in character.
+// Pool order: incident variant (while active) → theme → default. Under the
+// Trading Floor + incident it is 50/50 so the desk keeps its voice.
 function variantLine(kind: IncidentLineKind): string | null {
   if (getVariant() !== 'incident') return null
   if (state.name === 'office' && Math.random() < 0.5) return null
@@ -271,40 +274,40 @@ export function themedWater(): string  { return variantLine('water')  ?? pick(st
 // Parallel tool-output messages keyed by role — used when ?sim or ?video loads with Office theme.
 export const OFFICE_SIM_TOOL_MESSAGES: Record<string, string[]> = {
   'security-auditor': [
-    '⚡ auditing middleware for season-nine vulnerabilities',
-    '⚠️ Dwight stored session tokens in his beet cellar',
-    '🚨 JWT refresh token has expiry of "never" — classic',
-    'moving everything to httpOnly before Toby finds out',
+    '⚡ auditing the broker credentials handling',
+    '⚠️ an API key sits in a plain-text .set file',
+    '🚨 the webhook secret never expires',
+    'moving secrets to the OS credential store',
   ],
   'code-reviewer': [
-    '⚡ running: grep -r "that\'s what she said" src/',
-    '🔍 reviewing — this PR has more drama than the Dundies',
-    '💡 suggesting httpOnly cookies — not localStorage, this isn\'t Schrute Farms',
-    'lgtm, ship it to Stamford branch',
+    '⚡ running: grep -r "OrderSend" src/',
+    '🔍 reviewing — this lot rounding needs a cap',
+    '💡 suggesting one sizing function instead of three',
+    'lgtm once the walk-forward is green',
   ],
   'frontend-developer': [
-    '⚡ editing src/auth/tokenStore.ts',
-    '🎨 new login screen looks better than Phyllis\'s wedding',
-    'I can handle the cookie migration, no big deal',
-    'responsive on mobile — even Stanley approves',
+    '⚡ editing dashboard/equity-curve.tsx',
+    '🎨 the equity wall reads well at a glance now',
+    'I can handle the dashboard migration',
+    'responsive on mobile — the drawdown chart too',
   ],
   'assistant': [
-    'the printer jammed again. third time today. Sabre strikes.',
-    'someone check on Michael, he\'s monologuing',
-    "I'll handle it — identity theft is not a joke",
+    'the tester froze on 2020-03 again. one more run.',
+    'someone check the Monday rule, it skipped a day',
+    "I'll handle it — logging it in the ledger first",
   ],
   'boss': [
-    'pizza in the lobby! it\'s pretzel day!',
-    'anyone want a Red Bull? or a Schrute Buck?',
-    'ship it, we\'ll fix it in prod. PARKOUR!',
-    'how are we looking on the dashboard?',
+    'pizza in the break room, green month!',
+    'anyone want a coffee before the open?',
+    'ship it to demo first, never straight to live',
+    'how are we looking on the equity curve?',
   ],
 }
 
-/** Sim replacement for Antony's typed questions, when theme is Office */
+/** Sim replacement for the typed questions, when theme is the Trading Floor */
 export const OFFICE_SIM_BOSS_PROMPTS = [
-  '/ultra-think audit our authentication like Dwight auditing the beet farm',
-  'how bad is the localStorage issue — worse than Kevin dropping the chili?',
+  '/ultra-think audit our order sizing like a risk desk would',
+  'how bad is the one-lot rounding — worse than the 2020 crash day?',
 ]
 
 // ===== Rotation helpers for the Office ?sim rotation =====
@@ -314,10 +317,6 @@ export function getAllOfficeCharacters(): readonly string[] { return OFFICE_CHAR
 /** Force a specific role → character mapping (used by sim rotation). */
 export function assignCharacterToRole(role: string, slug: string) {
   state.castByRole[role] = slug
-  if (slug === 'angela-martin') {
-    state.angelaRole = role
-    state.angelaCat = pick(OFFICE_CATS)
-  }
   persist()
   emit()
 }
@@ -327,10 +326,6 @@ export function releaseRole(role: string) {
   const slug = state.castByRole[role]
   if (!slug) return
   delete state.castByRole[role]
-  if (state.angelaRole === role) {
-    state.angelaRole = null
-    state.angelaCat = null
-  }
   persist()
   emit()
 }
@@ -355,70 +350,46 @@ export function nextUnusedOfficeCharacter(ignoreSet: Set<string> = new Set()): s
 
 /** Display name for a slug — used when renaming sim staff on spawn. */
 export function displayNameFromSlug(slug: string): string {
-  return slug.split('-').map(p => p[0].toUpperCase() + p.slice(1)).join(' ')
+  return slugToName(slug)
 }
 
-// Character-specific prop overlays — replace the energy-drink bubble above cast members.
-// Why: visual easter eggs tying props to iconic bits. Each slug maps to a pool
-// of signature props — when there's more than one, a deterministic hash picks
-// per-role so the same agent keeps the same prop within a session.
-const OFFICE_PROPS_BY_SLUG: Record<string, string[]> = {
-  'michael-scott':   [
-    '/sprites/office/props/worlds-best-boss-mug.png',
-    '/sprites/office/props/dundie-award.png',
-    '/sprites/office/props/golden-ticket-box.png',
-    '/sprites/office/props/prison-mike.png',
-    '/sprites/office/props/no-god-please-no.png',
-  ],
-  'dwight-schrute':  [
-    '/sprites/office/props/cpr-dummy-mask.png',
-    '/sprites/office/props/schrute-buck.png',
-  ],
-  'jim-halpert':     ['/sprites/office/props/jello-stapler.png'],
-  'stanley-hudson':  ['/sprites/office/props/pretzel-day.png'],
-  'jan-levinson':    ['/sprites/office/props/serenity-by-jan-candle.png'],
-  // Why: Finer Things Club members share the prop — Oscar, Pam, and Toby.
-  'oscar-martinez':  ['/sprites/office/props/finer-things-club.png'],
-  'pam-beesly':      ['/sprites/office/props/finer-things-club.png'],
-  'toby-flenderson': ['/sprites/office/props/finer-things-club.png'],
-  // Angela: randomized second cat assigned per-role below — not a prop file.
-}
-
-// Why: generic fallback for remaining cast so every Office character has a prop.
-const OFFICE_GENERIC_PROPS = [
-  '/sprites/office/props/dunder-mifflin-logo.png',
-  '/sprites/office/props/dunder-mifflin-paper-box.png',
-  '/sprites/office/props/schrute-buck.png',
-  '/sprites/office/props/golden-ticket-box.png',
+// Trading props over a persona's desk, in place of the energy-drink bubble.
+// Original art (public/sprites/trading/props, MIT like the rest of the fork).
+const TRADING_PROPS = [
+  '/sprites/trading/props/candle-mug.png',
+  '/sprites/trading/props/bull-trophy.png',
+  '/sprites/trading/props/equity-curve-frame.png',
+  '/sprites/trading/props/ticker-tape.png',
+  '/sprites/trading/props/lot-calculator.png',
+  '/sprites/trading/props/stop-loss-sign.png',
+  '/sprites/trading/props/backtest-clipboard.png',
+  '/sprites/trading/props/trader-bear.png',
 ]
 
-const OFFICE_CATS_PATHS = OFFICE_CATS.map(c => `/sprites/office/cats/${c}.png`)
+/** Fixed props for the personas whose job says what they hold */
+const PROP_BY_SLUG: Record<string, string> = {
+  'desk-head': '/sprites/trading/props/bull-trophy.png',
+  'rory-risk': '/sprites/trading/props/stop-loss-sign.png',
+  'bea-backtests': '/sprites/trading/props/backtest-clipboard.png',
+  'pip-pricing': '/sprites/trading/props/lot-calculator.png',
+  'nia-newsdesk': '/sprites/trading/props/ticker-tape.png',
+  'mo-montecarlo': '/sprites/trading/props/equity-curve-frame.png',
+}
 
-// Stable per-role generic prop / head-cat assignment — deterministic hash so it doesn't flicker.
+/** Every prop the theme can ask for (scripts/check-assets.mjs) */
+export const OFFICE_PROP_PATHS: readonly string[] = TRADING_PROPS
+
+// Stable per-role prop assignment — deterministic hash so it doesn't flicker.
 function hashString(s: string): number {
   let h = 0
   for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
   return Math.abs(h)
 }
 
-/** Prop sprite override for a given role's cast, or null to fall back to energy drink. */
+/** Prop sprite override for a given role's persona, or null to fall back to energy drink. */
 export function getOfficePropForRole(role: string): string | null {
   if (state.name !== 'office') return null
   const slug = state.castByRole[role]
   if (!slug) return null
-
-  // Angela: show a different cat above her head (head-cat, separate from her follower cat)
-  if (slug === 'angela-martin') {
-    const idx = hashString(role + 'head') % OFFICE_CATS_PATHS.length
-    return OFFICE_CATS_PATHS[idx]
-  }
-
-  const specificPool = OFFICE_PROPS_BY_SLUG[slug]
-  if (specificPool && specificPool.length > 0) {
-    // Why: hash by role + slug so each cast member keeps a stable prop pick
-    return specificPool[hashString(role + slug) % specificPool.length]
-  }
-
-  // Generic fallback: dunder logo / Schrute buck / golden ticket, deterministic per slug
-  return OFFICE_GENERIC_PROPS[hashString(slug) % OFFICE_GENERIC_PROPS.length]
+  return PROP_BY_SLUG[slug] ?? TRADING_PROPS[hashString(slug) % TRADING_PROPS.length]
 }

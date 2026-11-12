@@ -61,7 +61,7 @@ export interface RoomConnection {
   /**
    * The door itself in the room's picture (% of the stage, top-left corner and
    * size), so clicking it shows the room it leads to (src/components/DoorLinks.tsx).
-   * Measured on the day art; the Dunder Mifflin copies have their doors in the same place.
+   * Measured on the day art; a theme copy (backgroundDm) must have its doors in the same place.
    */
   door?: { x: number; y: number; w: number; h: number }
 }
@@ -97,7 +97,7 @@ export interface Room {
     day: string       // path to empty room background
     night: string
   }
-  /** The same two pictures for the Dunder Mifflin theme (the office's own live in src/theme.ts) */
+  /** Optional: the same two pictures for the 'office' theme (the Trading Floor uses the default art, so no room sets it) */
   backgroundDm?: {
     day: string
     night: string
@@ -301,10 +301,6 @@ export const ROOMS: Record<RoomId, Room> = {
       day: '/rooms/corridor-day.webp',
       night: '/rooms/corridor-night.webp',
     },
-    backgroundDm: {
-      day: '/rooms/corridor-day-dm.webp',
-      night: '/rooms/corridor-night-dm.webp',
-    },
     width: 800,
     height: 600,
     furniture: [],
@@ -342,10 +338,6 @@ export const ROOMS: Record<RoomId, Room> = {
     background: {
       day: '/rooms/meeting-room-day.webp',
       night: '/rooms/meeting-room-night.webp',
-    },
-    backgroundDm: {
-      day: '/rooms/meeting-room-day-dm.webp',
-      night: '/rooms/meeting-room-night-dm.webp',
     },
     width: 800,
     height: 600,
@@ -407,10 +399,6 @@ export const ROOMS: Record<RoomId, Room> = {
       day: '/rooms/server-room-day.webp',
       night: '/rooms/server-room-night.webp',
     },
-    backgroundDm: {
-      day: '/rooms/server-room-day-dm.webp',
-      night: '/rooms/server-room-night-dm.webp',
-    },
     width: 800,
     height: 600,
     furniture: [
@@ -461,10 +449,6 @@ export const ROOMS: Record<RoomId, Room> = {
     background: {
       day: '/rooms/lunch-room-day.webp',
       night: '/rooms/lunch-room-night.webp',
-    },
-    backgroundDm: {
-      day: '/rooms/lunch-room-day-dm.webp',
-      night: '/rooms/lunch-room-night-dm.webp',
     },
     width: 800,
     height: 600,

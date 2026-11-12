@@ -22,10 +22,10 @@
 import { ROOMS, ROOM_IDS, HUB_ROOM, OFFICE_ROOM, type RoomId } from './rooms'
 
 /**
- * The rooms whose backgrounds (day and night, plus the Dunder Mifflin pair
+ * The rooms whose backgrounds (day and night, plus the theme pair
  * when the room lists one in `backgroundDm`) are in public/rooms. Add a
  * room's id here when its art lands and take its files off PLANNED in
- * scripts/check-assets.mjs. A room without its own Dunder Mifflin pair shows
+ * scripts/check-assets.mjs. A room without its own theme pair shows
  * its default pictures in that theme (roomArt).
  */
 export const DRAWN_ROOMS: readonly RoomId[] = [OFFICE_ROOM, 'corridor', 'meeting-room', 'server-room', 'lunch-room']
@@ -69,7 +69,7 @@ export function roomArtFiles(id: RoomId): string[] {
 /**
  * The day and night pictures to show for a room other than the office.
  * @param id the room
- * @param theme the theme in force ('office' is Dunder Mifflin)
+ * @param theme the theme in force ('office' is the Trading Floor)
  * @param drawn the rooms that have art
  * @returns the two paths, or null when the room has no art (draw the placeholder)
  */

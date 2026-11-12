@@ -22,7 +22,7 @@ import '../styles/room-switcher.css'
 
 interface RoomBackdropProps {
   room: RoomId
-  /** The theme in force: 'office' is Dunder Mifflin */
+  /** The theme in force: 'office' is the Trading Floor */
   theme: 'default' | 'office'
   /** 0 day … 1 night, as the office's night art is faded in */
   night: number

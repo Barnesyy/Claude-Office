@@ -145,9 +145,10 @@ export const INCIDENT_ASSETS = {
   })
 
   it('fails loudly when a pattern anchor disappears from the source', () => {
-    const { status, out } = run(fixture({ ...CONSISTENT, 'src/theme.ts': 'export const nothing = 1\n' }))
+    // Why SEASON_SUFFIX: the EA fork retired the theme.ts anchors (P2/P3) with the fan-art cast
+    const { status, out } = run(fixture({ ...CONSISTENT, 'src/seasonNames.ts': 'export const nothing = 1\n' }))
     expect(status).toBe(1)
-    expect(out).toContain('src/theme.ts: could not find OFFICE_CHARACTERS')
+    expect(out).toContain('src/seasonNames.ts: could not find SEASON_SUFFIX')
   })
 
   it('accepts a seasonal copy in every season\'s suffix, and the walk frames beside a sprite or its copy', () => {

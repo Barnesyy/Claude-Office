@@ -209,7 +209,7 @@ describe('a room is closed until its art is drawn (src/roomAccess.ts)', () => {
     expect([...openRoomSet([OFFICE_ROOM], true)].sort()).toEqual([...ROOM_IDS].sort())
   })
 
-  it("a room's art is named after it (day and night, plus a Dunder Mifflin pair when it has one); the office's live in the theme", () => {
+  it("a room's art is named after it (day and night, plus a theme pair when it has one); the office's live in the theme", () => {
     for (const id of [HUB_ROOM, ...SIDE_ROOMS]) {
       const dm = ROOMS[id].backgroundDm ? [`/rooms/${id}-day-dm.webp`, `/rooms/${id}-night-dm.webp`] : []
       expect(roomArtFiles(id)).toEqual([`/rooms/${id}-day.webp`, `/rooms/${id}-night.webp`, ...dm])
@@ -220,7 +220,7 @@ describe('a room is closed until its art is drawn (src/roomAccess.ts)', () => {
   it('roomArt gives the theme\'s two pictures for a drawn room and null (draw the placeholder) otherwise', () => {
     expect(roomArt('server-room', 'default', [OFFICE_ROOM])).toBeNull()
     expect(roomArt('server-room', 'default', [OFFICE_ROOM, 'server-room'])).toEqual({ day: '/rooms/server-room-day.webp', night: '/rooms/server-room-night.webp' })
-    // Dunder Mifflin: the room's own pair when it has one, else its default pictures
+    // The 'office' theme: the room's own pair when it has one, else its default pictures
     expect(roomArt('server-room', 'office', [OFFICE_ROOM, 'server-room'])).toEqual(ROOMS['server-room'].backgroundDm ?? ROOMS['server-room'].background)
     expect(roomArt(OFFICE_ROOM, 'default', [OFFICE_ROOM])).toBeNull()
   })

@@ -30,10 +30,8 @@
  *       src/config.ts, the getCharBase fallback in Character.tsx, the
  *       charNames list in PlacementHelper.tsx, and boss.sprite in
  *       office.config.example.json (and office.config.json when present).
- *   P2  Dunder Mifflin cast: /sprites/office/characters/{slug}-{dir}.png for
- *       every slug in OFFICE_CHARACTERS (src/theme.ts).
- *   P3  Angela's cats: /sprites/office/cats/{cat}.png for every entry of
- *       OFFICE_CATS (src/theme.ts).
+ *   P2, P3  (retired in the EA fork: the Trading Floor theme draws the
+ *       default sprites, and its props in src/theme.ts are plain literals)
  *   P4  Incident art slots: the `intended` path of each slot in
  *       src/incidentAssets.ts is probed at runtime and may not exist yet;
  *       it is optional (reported, never fatal). Its `fallback` is a plain
@@ -83,9 +81,8 @@ const DIRECTIONS = ['front-left', 'front-right', 'rear-left', 'rear-right']
 
 /** Templates the patterns above cover, with `${...}` replaced by `*`. */
 const KNOWN_DYNAMIC = new Set([
-  '*/*-*.png',                          // theme.ts getSpritePath (P1, P2)
+  '*/*-*.png',                          // theme.ts getSpritePath (P1)
   '/sprites/characters/*-*.png',        // PlacementHelper.tsx (P1)
-  '/sprites/office/cats/*.png',         // theme.ts getAngelaCat, OFFICE_CATS_PATHS (P3)
   '*.webp',                             // season.ts seasonalVariant: name.png -> name<suffix>.webp (P5)
   '*-walk*.webp',                       // walk.ts walkFramePaths: name.png -> name-walk1..4.webp (P6)
 ])
@@ -213,15 +210,6 @@ for (const cfg of ['office.config.example.json', 'office.config.json']) {
   } catch { problems.push(`${cfg}: not valid JSON`) }
 }
 for (const base of bases) for (const dir of DIRECTIONS) ref(required, `/sprites/characters/${base}-${dir}.png`, `P1 character "${base}"`)
-
-// P2, P3 — the Dunder Mifflin cast and Angela's cats
-const theme = readIfExists('src/theme.ts')
-if (theme !== null) {
-  for (const slug of anchorOrFail('src/theme.ts', 'OFFICE_CHARACTERS', quotedIn(theme, /const OFFICE_CHARACTERS = \[([^\]]*)\]/)))
-    for (const dir of DIRECTIONS) ref(required, `/sprites/office/characters/${slug}-${dir}.png`, `P2 cast "${slug}"`)
-  for (const cat of anchorOrFail('src/theme.ts', 'OFFICE_CATS', quotedIn(theme, /const OFFICE_CATS = \[([^\]]*)\]/)))
-    ref(required, `/sprites/office/cats/${cat}.png`, `P3 cat "${cat}"`)
-}
 
 // P4 — incident slots: `intended` is optional, `fallback` was picked up as a literal
 const incident = readIfExists('src/incidentAssets.ts')

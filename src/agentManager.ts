@@ -241,7 +241,7 @@ export function getEffect(
   }
 
   // Office theme: prop overlays replace energy drinks for mapped cast members.
-  // Why: Dwight → CPR mask, Michael → Golden Ticket, etc. Still gated to "working" + break states.
+  // Why: a quant holds the backtest clipboard, risk holds the stop-loss sign, etc. Still gated to "working" + break states.
   const officeProp = role ? getOfficePropForRole(role) : null
   if (officeProp && (state === 'working' || state === 'coffee-break')) {
     return officeProp

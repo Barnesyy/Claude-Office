@@ -116,7 +116,7 @@ function Switch({ label, on, onChange, disabled = false, testId }: {
   )
 }
 
-const THEMES: Choice<ThemeName>[] = [{ value: 'default', label: 'Default' }, { value: 'office', label: 'Dunder Mifflin' }]
+const THEMES: Choice<ThemeName>[] = [{ value: 'default', label: 'Default' }, { value: 'office', label: 'Trading Floor' }]
 const DAY_NIGHT: Choice<DayNightMode>[] = [{ value: 'auto', label: 'Auto' }, { value: 'day', label: 'Day' }, { value: 'night', label: 'Night' }]
 const SEASON_LABEL: Record<Season, string> = {
   christmas: 'Christmas', halloween: 'Halloween', easter: 'Easter', valentine: "Valentine's Day",

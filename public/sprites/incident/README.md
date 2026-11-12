@@ -18,7 +18,7 @@ surface is, so re-measure it if the board art changes).
 | `pizza-tower-1.png` | 300x330 | 3 boxes (10-30 min) | hidden |
 | `pizza-tower-2.png` | 300x400 | 6 boxes, leaning (30 min+) | hidden |
 
-Transparent PNG, same palette and outline style as `public/sprites/office/props/`.
+Transparent PNG, same palette and outline style as `public/sprites/effects/`.
 Per-role props live in `props/` (96x96 each): the role map is ROLE_PROP in
 `src/incidentAssets.ts`, and `.char-prop` in `src/styles/incident.css` places
 them at the character's hand.

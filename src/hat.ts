@@ -1,7 +1,7 @@
 /**
  * hat.ts - where a Santa hat sits on a character sprite, measured from the sprite itself.
  *
- * Every character (the default cast, the Dunder Mifflin cast, a custom boss)
+ * Every character (the default cast, a custom boss)
  * gets the same hat in December, so instead of a hand-made position per
  * sprite the head is found from the image's own pixels: the first opaque row
  * is the top of the hair, and the opaque span a little below it is the head.
@@ -20,7 +20,7 @@ export const HAT_SRC = '/sprites/effects/santa-hat.png'
 // on all four directions of every cast sprite), so those characters go
 // without; Claude's elf costume and the boss's festive sprite already have a
 // hat of their own
-const NO_HAT = new Set(['employee-2', 'erin-hannon', 'Frontend-dev-1', 'Me-1', 'Claude-1'])
+const NO_HAT = new Set(['employee-2', 'Frontend-dev-1', 'Me-1', 'Claude-1'])
 
 // A standing sprite's file name after the character's base name: the facing,
 // then `.png` or a seasonal copy's `<suffix>.webp`. Why every suffix and not
@@ -46,11 +46,10 @@ export function wearsOverlayHat(src: string): boolean {
 
 /**
  * Characters with a whole Halloween costume of their own (`-halloween` copies
- * of every sprite): Claude the vampire, the boss the wizard, and the Dunder
- * Mifflin leads (Michael's monster, Dwight's dark lord, Jim's three-hole
- * punch, Pam's cat). Nothing is worn on top of those.
+ * of every sprite): Claude the vampire and the boss the wizard. Nothing is
+ * worn on top of those.
  */
-const FULL_HALLOWEEN_COSTUME = new Set(['Claude-1', 'Me-1', 'michael-scott', 'dwight-schrute', 'jim-halpert', 'pam-beesly'])
+const FULL_HALLOWEEN_COSTUME = new Set(['Claude-1', 'Me-1'])
 
 /** Something worn over a sprite at Halloween, placed from the measured head. */
 export interface HalloweenPiece {

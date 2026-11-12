@@ -91,7 +91,7 @@ export function mentionHints(input: string, mentions: string[] | undefined): str
 const SlackChat: React.FC<SlackChatProps> = ({ messages, muted, volume, onToggleMute, onVolumeChange, onSendMessage, onReaction, autoTypeText, dayPhase, typingUser, lastSeenId, readOnly = false, mentions }) => {
   const theme = useTheme()
   useSeasonArt() // Why: re-render when a seasonal room or avatar file turns out to exist
-  void theme // Why: subscribe so avatars re-render when /the-office toggles
+  void theme // Why: subscribe so avatars re-render when /trading-floor toggles
   const bodyRef = useRef<HTMLDivElement>(null)
   const [inputText, setInputText] = useState('')
   const [showSlashHint, setShowSlashHint] = useState(false)
@@ -362,7 +362,7 @@ const SlackChat: React.FC<SlackChatProps> = ({ messages, muted, volume, onToggle
             <span className="slack-slash-cmd">/agents</span>
             <span className="slack-slash-cmd">/recap</span>
             <span className="slack-slash-cmd">/help</span>
-            <span className="slack-slash-cmd">/the-office</span>
+            <span className="slack-slash-cmd">/trading-floor</span>
             <span className="slack-slash-cmd">/incident</span>
             <span className="slack-slash-cmd">/all-clear</span>
           </div>
@@ -393,10 +393,10 @@ const SlackChat: React.FC<SlackChatProps> = ({ messages, muted, volume, onToggle
               if (e.key === 'Enter' && inputText.trim()) {
                 const trimmed = inputText.trim()
                 // Client-side slash commands — not sent to backend
-                if (trimmed === '/the-office' || trimmed === '/theoffice') {
+                if (trimmed === '/trading-floor' || trimmed === '/tradingfloor') {
                   toggleTheme()
                   const nowOn = getTheme() === 'office'
-                  onSendMessage?.(nowOn ? '🧻 Dunder Mifflin mode: ON. Identity theft is not a joke.' : '🔁 Office theme: OFF')
+                  onSendMessage?.(nowOn ? '📈 Trading Floor: ON. Demo first, then live.' : '🔁 Trading Floor: OFF')
                 } else {
                   onSendMessage?.(trimmed)
                 }

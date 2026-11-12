@@ -39,11 +39,11 @@ describe('wearsOverlayHat', () => {
   it('everyone gets the hat, jumper or not, except the NO_HAT list (ponytails, big hair, own festive hat)', () => {
     expect(wearsOverlayHat('/sprites/characters/dev-1-front-left.png')).toBe(true)
     expect(wearsOverlayHat('/sprites/characters/dev-1-front-left-xmas.webp')).toBe(true)
-    expect(wearsOverlayHat('/sprites/office/characters/jim-halpert-rear-right.png')).toBe(true)
+    expect(wearsOverlayHat('/sprites/characters/dev-2-rear-right.png')).toBe(true)
     expect(wearsOverlayHat('/sprites/characters/Claude-1-front-left-xmas.webp')).toBe(false)
     expect(wearsOverlayHat('/sprites/characters/Me-1-rear-right-xmas.webp')).toBe(false)
     expect(wearsOverlayHat('/sprites/characters/employee-2-front-right.png')).toBe(false)
-    expect(wearsOverlayHat('/sprites/office/characters/erin-hannon-rear-left.png')).toBe(false)
+    expect(wearsOverlayHat('/sprites/characters/Frontend-dev-1-rear-left.png')).toBe(false)
     expect(wearsOverlayHat('/sprites/characters/Me-1-front-left.png')).toBe(false)
   })
 
@@ -51,7 +51,7 @@ describe('wearsOverlayHat', () => {
     for (const suffix of Object.values(SEASON_SUFFIX)) {
       expect(wearsOverlayHat(`/sprites/characters/dev-1-front-left${suffix}.webp`)).toBe(true)
       expect(wearsOverlayHat(`/sprites/characters/Claude-1-rear-left${suffix}.webp`)).toBe(false)
-      expect(wearsOverlayHat(`/sprites/office/characters/erin-hannon-front-right${suffix}.webp`)).toBe(false)
+      expect(wearsOverlayHat(`/sprites/characters/Frontend-dev-1-front-right${suffix}.webp`)).toBe(false)
     }
   })
 
@@ -62,11 +62,9 @@ describe('wearsOverlayHat', () => {
 })
 
 describe('halloweenPiece', () => {
-  it('the leads in full costume wear nothing on top: Claude, the boss, Michael, Dwight, Jim and Pam', () => {
+  it('the leads in full costume wear nothing on top: Claude and the boss', () => {
     for (const name of ['Claude-1', 'Me-1']) expect(halloweenPiece(`/sprites/characters/${name}-front-left-halloween.webp`)).toBeNull()
-    for (const name of ['michael-scott', 'dwight-schrute', 'jim-halpert', 'pam-beesly']) {
-      expect(halloweenPiece(`/sprites/office/characters/${name}-rear-right.png`)).toBeNull()
-    }
+    for (const name of ['Claude-1', 'Me-1']) expect(halloweenPiece(`/sprites/characters/${name}-rear-right.png`)).toBeNull()
   })
 
   it('everyone else gets a hat or a mask, the same one on every sprite and in every season copy', () => {
@@ -79,11 +77,10 @@ describe('halloweenPiece', () => {
 
   it('a character a hat sits wrong on (NO_HAT: ponytails, big hair) gets a mask, never the hat', () => {
     for (const name of ['employee-2', 'Frontend-dev-1']) expect(halloweenPiece(`/sprites/characters/${name}-front-left.png`)?.kind).toBe('mask')
-    expect(halloweenPiece('/sprites/office/characters/erin-hannon-front-left.png')?.kind).toBe('mask')
   })
 
-  it('both casts get a mix: the hat and more than one mask', () => {
-    const cast = ['dev-1', 'dev-2', 'employee-1', 'employee-3', 'explore-1', 'security-audit-1', 'andy-bernard', 'angela-martin', 'kevin-malone', 'oscar-martinez', 'stanley-hudson', 'creed-bratton', 'kelly-kapoor', 'ryan-howard', 'toby-flenderson', 'phyllis-vance']
+  it('the cast gets a mix: the hat and more than one mask', () => {
+    const cast = ['dev-1', 'dev-2', 'employee-1', 'employee-3', 'explore-1', 'security-audit-1', 'employee-2', 'Frontend-dev-1', 'debugger', 'devops', 'tester', 'reviewer', 'security', 'fullstack', 'frontend', 'manager']
     const srcs = new Set(cast.map(n => halloweenPiece(`/sprites/x/${n}-front-left.png`)!.src))
     expect(srcs.size).toBeGreaterThanOrEqual(4)
   })
@@ -151,7 +148,7 @@ describe('hatOnHead', () => {
 describe('the hand-set tables', () => {
   it('a sprite is keyed without its folder, extension or season suffix', () => {
     expect(spriteKey('/sprites/characters/dev-1-front-left.png')).toBe('dev-1-front-left')
-    expect(spriteKey('/sprites/office/characters/kevin-malone-rear-right-xmas.webp')).toBe('kevin-malone-rear-right')
+    expect(spriteKey('/sprites/x/explore-1-rear-right-xmas.webp')).toBe('explore-1-rear-right')
     expect(spriteKey('/sprites/characters/dev-1-front-left-winter.webp')).toBe('dev-1-front-left')
   })
 

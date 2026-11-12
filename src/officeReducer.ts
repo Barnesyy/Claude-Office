@@ -411,9 +411,9 @@ function bossReply(agentName: string, random: () => number): string {
     `merged. next task loading...`,
   ]
   // Why: during an incident the boss is the Incident Commander 40% of the time;
-  // under the Office theme Michael Scott occasionally lands his signature line.
+  // under the Trading Floor theme the desk head sometimes calls the tape.
   if (getVariant() === 'incident' && random() < 0.4) return pickIncidentLine('bossReply')
-  if (getTheme() === 'office' && random() < 0.25) return `That's what she said 😏`
+  if (getTheme() === 'office' && random() < 0.25) return `Booked. On to the next trade 📈`
   return pickOne(replies, random)
 }
 

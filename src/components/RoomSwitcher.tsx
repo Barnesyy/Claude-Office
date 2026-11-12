@@ -21,7 +21,7 @@ import '../styles/room-switcher.css'
 interface RoomSwitcherProps {
   /** The plan (src/roomSwitcher.ts switcherModel); empty draws nothing */
   rooms: PlanRoom[]
-  /** The theme in force: 'office' is Dunder Mifflin */
+  /** The theme in force: 'office' is the Trading Floor */
   theme: 'default' | 'office'
   /** The user picked a room */
   onSelect: (room: RoomId) => void
