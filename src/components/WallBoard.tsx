@@ -19,7 +19,7 @@ import type { SessionInfo } from '../types'
 import { BOARD_RECT, boardLabel, shownBoard, taskCaption, useTaskBoards, type BoardTask } from '../taskBoard'
 import {
   WALL_CYCLE_MS, WALL_MODES, WALL_TITLES, curvePath, money, pct, useEa, wallMode, wallModesWithContent,
-  equityCaption, choiceLabel, canPickEquity, pinEquity,
+  equityCaption, equityPickTag, choiceLabel, canPickEquity, pinEquity,
   type EaEquity, type EaState, type WallMode,
 } from '../eaScenes'
 import '../styles/taskboard.css'
@@ -88,7 +88,7 @@ function Equity({ eq, reportsDir }: { eq: EaEquity | null; reportsDir: string | 
   return (
     <div className="wall-equity">
       <div className="wall-title" data-testid="wall-equity-caption">{equityCaption(eq)}</div>
-      <div className="wall-equity-pick">{eq.pick === 'pinned' ? 'PINNED' : eq.source === 'run' ? 'LAST RUN' : eq.source === 'focus' ? `AUTO · ${eq.focus ?? ''}` : 'AUTO · newest'}</div>
+      <div className="wall-equity-pick">{equityPickTag(eq)}</div>
       <svg viewBox="0 0 100 52" preserveAspectRatio="none" className="wall-curve" aria-hidden="true">
         {[13, 26, 39].map(y => <line key={y} x1={0} y1={y} x2={100} y2={y} stroke="#c6ccd8" strokeWidth={0.6} />)}
         <path d={curve.area} fill={up ? 'rgba(46, 160, 67, 0.16)' : 'rgba(220, 60, 50, 0.16)'} />

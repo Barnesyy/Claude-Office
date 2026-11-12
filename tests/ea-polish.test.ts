@@ -208,7 +208,7 @@ describe('equity picker: one entry per result, and AUTO following the EA being w
     writeFileSync(join(t1, 'srs1.htm'), utf16(reportHtml(fixtureRun({ seed: 5 }), { expert: 'SRS_DAX_Corrected_BlackBull' })))
     const { s, advance } = scene(fx)
     s.tick()
-    expect(s.snapshot().equity).toMatchObject({ name: 'srs1.htm', source: 'folder', focus: 'BrooksSetupTesterDAX_v024_bad76042' })
+    expect(s.snapshot().equity).toMatchObject({ name: 'srs1.htm', source: 'folder', focus: 'BrooksSetupTesterDAX_v024_bad76042', focusFound: false })
     // Its report lands: shown after the dwell (it replaces a curve that is not the focus's)
     writeFileSync(join(t2, 'BSTDAX_ONOFF_F02.htm'), utf16(reportHtml(fixtureRun({ seed: 9 }), { expert: 'BrooksSetupTesterDAX_v024_bad76042', symbol: 'DAX40' })))
     advance(2000); s.tick()
@@ -266,5 +266,47 @@ describe('AUTO follows a Workbench build whose report names the EA differently (
     expect(snap.equity).toMatchObject({ name: 'BTS_T450_S055.htm', source: 'focus', focus: 'EA_BrooksPA_BlackBull', expert: 'BPASDR16Twin' })
     const flag = (f: string) => snap.equityChoices.find((c: any) => c.file === f)
     expect([flag('BTS_T450_S055.htm')?.focus, flag('BTS_T450_S055.htm')?.folder, flag('OLD_BEFORE.htm')?.focus, flag('srs_newer.htm')?.focus]).toEqual([true, 'BlackBull tester 3', false, false])
+  })
+})
+
+describe('AUTO looks more widely, and says so when the focus EA has no report', () => {
+  const age = (p: string, ms: number) => { const t = (Date.now() - ms) / 1000; utimesSync(p, t, t) }
+  const term = (fx: ReturnType<typeof workbench>, id: string) => { const d = join(fx.appData, 'MetaQuotes', 'Terminal', id); mkdirSync(d, { recursive: true }); return d }
+
+  it('the AUTO tag admits it when the EA being worked on has no report yet', () => {
+    const fx = workbench()
+    const t1 = term(fx, fx.T1)
+    writeFileSync(join(t1, 'srs1.htm'), utf16(reportHtml(fixtureRun({ seed: 5 }), { expert: 'SRS_DAX_Corrected_BlackBull' })))
+    // The Workbench's newest run is Brooks (R1802) and its report is removed
+    rmSync(join(term(fx, fx.T2), 'BSTDAX_ONOFF_F02.htm'))
+    let now = Date.now()
+    const s = new EaScenes({ config: { ...resolveEaConfig({}, {}), reportsDir: join(fx.appData, 'MetaQuotes', 'Terminal'), workbench: fx.wb, appData: fx.appData, rescanSeconds: 1 }, now: () => now,
+      readWorkbench: (dir: string) => readWorkbench(dir, { appData: fx.appData, alive: fx.alive, readReport, now }) })
+    s.tick()
+    const eq = s.snapshot().equity
+    expect(eq).toMatchObject({ name: 'srs1.htm', source: 'folder', focus: 'BrooksSetupTesterDAX_v024_bad76042', focusFound: false })
+    expect(eq.focusFound).toBe(false)
+  })
+
+  it('finds a focus report older than the newest-60 pool, including via a Workbench last-case name in another tester folder', () => {
+    const fx = workbench()
+    const t1 = term(fx, fx.T1)
+    const t2 = term(fx, fx.T2)
+    // Flood reportsDir with other EAs so the ordinary pool would miss Brooks
+    for (let i = 0; i < 200; i++) {
+      const p = join(t1, `srs_flood_${String(i).padStart(3, '0')}.htm`)
+      writeFileSync(p, utf16(reportHtml(fixtureRun({ seed: 100 + i }), { expert: 'SRS_DAX_Corrected_BlackBull' })))
+      age(p, i * 1000)
+    }
+    // Brooks report is old and lives only as the Workbench last case name
+    const buried = join(t2, 'BSTDAX_ONOFF_F02.htm')
+    age(buried, 2 * 3600_000)
+    let now = Date.now()
+    const s = new EaScenes({ config: { ...resolveEaConfig({}, {}), reportsDir: join(fx.appData, 'MetaQuotes', 'Terminal'), workbench: fx.wb, appData: fx.appData, rescanSeconds: 1 }, now: () => now,
+      readWorkbench: (dir: string) => readWorkbench(dir, { appData: fx.appData, alive: fx.alive, readReport, now }) })
+    s.tick()
+    const snap = s.snapshot()
+    expect(snap.equity).toMatchObject({ name: 'BSTDAX_ONOFF_F02.htm', source: 'focus', focus: 'BrooksSetupTesterDAX_v024_bad76042', focusFound: true })
+    expect(snap.equityChoices.find((c: any) => c.file === 'BSTDAX_ONOFF_F02.htm')).toMatchObject({ focus: true })
   })
 })

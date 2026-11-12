@@ -294,8 +294,9 @@ node scripts/ea-demo.mjs --to /tmp/ao/proj [--with-fixtures] [--no-report] [--ho
 - A different report only replaces the current one after `ea.equityDwellMinutes` (default 10) on the wall.
 - The caption names the EA, symbol, period and date range.
 - "The EA being worked on" means builds of the same EA by name. For the Workbench, it also means any report that build's runs wrote: in their tester folders, since each run started. That covers an EA whose report gives a different name from its file (`EA_BrooksPA_BlackBull.ex5` reports itself as `BPASDR16Twin`).
-- Auto looks through the newest 60 results, so the EA being worked on is still found when other EAs' reports are newer. As soon as that EA has a finished report, the wall switches to it (after the dwell) and keeps it over newer reports of other EAs.
-- The picker lists one entry per result: the same run saved as .htm and .xml, or copied into another tester folder, is folded into one ("+1 copy"). Each entry names its file and tester folder (the Workbench install name when known). ◆ marks builds of the EA being worked on.
+- Auto looks through the newest 60 results, then more widely: the Workbench's own run-to-report mapping (a run's last case and run name, in that tester's folder) and a deeper walk of the reports folder, so a report is still found under a flood of other EAs' results. As soon as that EA has a finished report, the wall switches to it (after the dwell) and keeps it over newer reports of other EAs.
+- If that EA still has no report, Auto keeps showing the newest of all and says so: `AUTO · newest (no report yet for <EA>)`.
+- The picker lists one entry per result: the same run saved as .htm and .xml, or copied into another tester folder, is folded into one ("+1 copy"). Each entry names its file and tester folder (the Workbench install name when known). ◆ marks reports of the EA being worked on.
 - The picker on the wall pins one of the 14 newest reports (plus the focus EA's newest, if it is older), or goes back to Auto. It only works on the loopback page with the UI token. The pin is kept in `<home>/ea-equity.json`.
 
 ### Stale needs-you

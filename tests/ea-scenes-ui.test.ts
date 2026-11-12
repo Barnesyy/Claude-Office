@@ -15,7 +15,7 @@ import WallBoard from '../src/components/WallBoard'
 import CommandCentre from '../src/components/CommandCentre'
 import {
   EA_EMPTY, cabinets, centreCards, centreColumn, cleanEa, curvePath, dispatchEa, eaScreenPairs, getEa, money, reportLines,
-  resetEa, riskByWorker, equityCaption, queueLines, choiceLabel, stationHeadline, stationLights, wallMode, wallModesWithContent, type EaState,
+  resetEa, riskByWorker, equityCaption, equityPickTag, queueLines, choiceLabel, stationHeadline, stationLights, wallMode, wallModesWithContent, type EaState,
 } from '../src/eaScenes'
 import { deskScreens } from '../src/screens'
 import type { Agent, SessionInfo } from '../src/types'
@@ -183,6 +183,15 @@ describe('equity caption, picker and queue lines', () => {
     const html = renderToStaticMarkup(createElement(WallBoard, { sessions: [], night: 0 }))
     expect(html).toContain('2019.01.02–2023.12.29')
     expect(html).toContain('AUTO · SchoolRun')
+  })
+  it('AUTO says so when the focused EA has no report yet', () => {
+    expect(equityPickTag({ pick: 'auto', source: 'folder', focus: 'SRS_DAX_Corrected_BlackBull', focusFound: false }))
+      .toBe('AUTO · newest (no report yet for SRS_DAX_Corrected_BlackBull)')
+    expect(equityPickTag({ pick: 'auto', source: 'focus', focus: 'EA_BrooksPA_BlackBull', focusFound: true }))
+      .toBe('AUTO · EA_BrooksPA_BlackBull')
+    dispatchEa({ type: 'ea_state', ea: { ...EA_EMPTY, equity: { ...REPORT, source: 'folder', pick: 'auto', focus: 'SRS_DAX_Corrected_BlackBull', focusFound: false, points: [[0, 1], [1, 2]], dealCount: 2 } } })
+    const html = renderToStaticMarkup(createElement(WallBoard, { sessions: [], night: 0 }))
+    expect(html).toContain('AUTO · newest (no report yet for SRS_DAX_Corrected_BlackBull)')
   })
 })
 

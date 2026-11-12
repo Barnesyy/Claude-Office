@@ -2,7 +2,7 @@
  * agents.json: written on every change, restored on startup, stale entries dropped.
  */
 
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -119,11 +119,59 @@ describe('agent persistence', () => {
     expect(JSON.parse(readFileSync(join(dir, 'agents.json'), 'utf8')).sessions.find((s: any) => s.id === 'recent').main.state).toBe('idle')
   })
 
-  it('ignores a corrupt agents.json', async () => {
+  it('ignores a corrupt agents.json and keeps a copy of it', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'agent-office-test-'))
     writeFileSync(join(dir, 'agents.json'), '{not json')
     const office = await loadOffice({ dir })
     offices.push(office)
     expect(office.server.activeAgents.size).toBe(0)
+    const kept = readdirSync(dir).filter((n: string) => n.startsWith('agents.json.corrupt-'))
+    expect(kept).toHaveLength(1)
+    expect(readFileSync(join(dir, kept[0]), 'utf8')).toBe('{not json')
+  })
+
+  it('restores a UTF-8 BOM in agents.json', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agent-office-test-'))
+    const now = Date.now()
+    writeFileSync(join(dir, 'agents.json'), '\uFEFF' + JSON.stringify({
+      agents: [{ id: 'bom', name: 'Bom', role: 'debugger', state: 'working', spawnedAt: now, lastActivityAt: now }],
+    }))
+    const office = await loadOffice({ dir })
+    offices.push(office)
+    expect(Array.from(office.server.activeAgents.keys())).toEqual(['bom'])
+  })
+
+  it('an all-NUL agents.json is set aside and the last good .bak is restored, not deleted', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agent-office-test-'))
+    const now = Date.now()
+    const good = { agents: [{ id: 'from-bak', name: 'Bak', role: 'debugger', state: 'working', spawnedAt: now, lastActivityAt: now }], sessions: [] }
+    writeFileSync(join(dir, 'agents.json.bak'), JSON.stringify(good))
+    writeFileSync(join(dir, 'agents.json'), Buffer.alloc(64, 0))
+    const office = await loadOffice({ dir })
+    offices.push(office)
+    expect(Array.from(office.server.activeAgents.keys())).toEqual(['from-bak'])
+    const kept = readdirSync(dir).filter((n: string) => n.startsWith('agents.json.corrupt-'))
+    expect(kept).toHaveLength(1)
+    expect(readFileSync(join(dir, kept[0])).equals(Buffer.alloc(64, 0))).toBe(true)
+    expect(JSON.parse(readFileSync(join(dir, 'agents.json.bak'), 'utf8')).agents[0].id).toBe('from-bak')
+  })
+
+  it('a second save keeps the previous good agents.json as .bak', async () => {
+    const office = await loadOffice()
+    offices.push(office)
+    await postEvent(office.server, {
+      type: 'agent_spawned',
+      agent: { id: 'agent-bak-1', name: 'One', role: 'test-engineer', task: 'A', agentType: 'general-purpose' },
+    })
+    expect(existsSync(join(office.dir, 'agents.json.bak'))).toBe(false)
+    await postEvent(office.server, {
+      type: 'agent_spawned',
+      agent: { id: 'agent-bak-2', name: 'Two', role: 'test-engineer', task: 'B', agentType: 'general-purpose' },
+    })
+    expect(existsSync(join(office.dir, 'agents.json.bak'))).toBe(true)
+    const bak = JSON.parse(readFileSync(join(office.dir, 'agents.json.bak'), 'utf8'))
+    expect(bak.agents.map((a: any) => a.id)).toEqual(['agent-bak-1'])
+    const cur = JSON.parse(readFileSync(join(office.dir, 'agents.json'), 'utf8'))
+    expect(cur.agents.map((a: any) => a.id)).toEqual(['agent-bak-1', 'agent-bak-2'])
   })
 })

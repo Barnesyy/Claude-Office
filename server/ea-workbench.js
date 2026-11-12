@@ -134,6 +134,12 @@ export function readWorkbench(dir, { alive = pidAlive, readReport = () => null, 
     return { report: null, why: `no report named ${kase} on ${nameOf(terminal)}` }
   }
 
+  // Each run's tester report(s), by last finished case and by the campaign's run name
+  for (const r of runs) {
+    const names = [...new Set([r.lastCase, r.run].filter(Boolean))]
+    r.reports = names.map(k => reportOf(r.install, k).report).filter(Boolean)
+  }
+
   let latest = null
   if (done[0]) {
     const d = done[0]
@@ -159,6 +165,8 @@ export function readWorkbench(dir, { alive = pidAlive, readReport = () => null, 
     /** Terminal (MT5 data folder) id -> install name, to name a report's folder */
     names: Object.fromEntries(Object.entries(installs).map(([id, v]) => [id.toUpperCase(), String(v?.name || '')]).filter(([, n]) => n)),
     latest,
+    /** Recent started items (up to RECENT_STARTED) with any reports already resolved */
+    runs,
     /** The newest started run (what is being worked on), for the equity wall's focus */
     newest: started[0] ? {
       test: String(started[0].test ?? ''), expert: started[0].expert ? base(String(started[0].expert).replace(/\\/g, '/')).replace(/\.ex5$/i, '') : null, startedAt: when(started[0].started),

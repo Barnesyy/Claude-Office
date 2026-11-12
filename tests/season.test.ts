@@ -4,13 +4,15 @@
  * the normal art.
  */
 import { readFileSync } from 'node:fs'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  SEASON_KEY_ART, _resetSeasonProbesForTests, _seasonProbesForTests, _setSeasonProbeForTests,
+  SEASON_KEY_ART, _resetSeasonProbesForTests, _seasonProbesForTests, _setSeasonManifestForTests, _setSeasonProbeForTests,
   currentQuarter, currentSeason, easterSunday, holidayFor, quarterFor, seasonHasArt,
   seasonLookFor, seasonalUrl, seasonalVariant, type SeasonLook,
 } from '../src/season'
 import { HOLIDAYS, QUARTERS, SEASON_SUFFIX, type Season } from '../src/seasonNames'
+import { SEASON_FILES } from '../src/seasonManifest'
+import { listSeasonFiles } from '../scripts/season-manifest.mjs'
 import type { SeasonPreference } from '../src/settings'
 
 const ALL: Season[] = [...HOLIDAYS, ...QUARTERS]
@@ -333,8 +335,9 @@ describe('seasonalUrl: holiday, then quarter, then the normal art', () => {
   })
 })
 
-describe('seasonalUrl: with no seasonal art in public/ at all', () => {
-  beforeEach(() => _resetSeasonProbesForTests())
+describe('seasonalUrl: with no seasonal art shipped', () => {
+  beforeEach(() => { _setSeasonManifestForTests([]) })
+  afterEach(() => { _setSeasonManifestForTests(null) })
 
   const URLS = [
     '/rooms/office-day.png', '/rooms/office-night.png', '/rooms/server-room-day.webp', '/rooms/server-room-night.webp',
@@ -347,52 +350,58 @@ describe('seasonalUrl: with no seasonal art in public/ at all', () => {
     OFF,
   ]
 
-  it('every URL resolves to the normal art, in every look, before and after the probes answer', async () => {
-    for (let pass = 0; pass < 4; pass++) {
-      for (const l of LOOKS) for (const url of URLS) expect(seasonalUrl(url, l)).toBe(url)
-      await probesAnswer()
-    }
+  it('every URL resolves to the normal art, in every look', () => {
+    for (const l of LOOKS) for (const url of URLS) expect(seasonalUrl(url, l)).toBe(url)
     for (const s of ALL) expect(seasonHasArt(s)).toBe(false)
   })
 
-  it('costs one request per layer, however many images the office draws: the two key files on a holiday', async () => {
+  it('asks about each layer\'s key file only, however many images the office draws', () => {
     const halloween: SeasonLook = { holiday: 'halloween', quarter: 'autumn' }
-    for (let pass = 0; pass < 4; pass++) {
-      for (const url of URLS) seasonalUrl(url, halloween)
-      await probesAnswer()
-    }
+    for (const url of URLS) seasonalUrl(url, halloween)
     expect(_seasonProbesForTests()).toEqual(['/rooms/office-day-halloween.webp', '/rooms/office-day-autumn.webp'])
   })
 
-  it('and one outside a holiday', async () => {
-    for (let pass = 0; pass < 4; pass++) {
-      for (const url of URLS) seasonalUrl(url, NOVEMBER)
-      await probesAnswer()
-    }
+  it('and one outside a holiday', () => {
+    for (const url of URLS) seasonalUrl(url, NOVEMBER)
     expect(_seasonProbesForTests()).toEqual(['/rooms/office-day-autumn.webp'])
   })
 })
 
-describe('seasonalUrl: while probes are in flight', () => {
-  beforeEach(() => _resetSeasonProbesForTests())
+describe('seasonalUrl: a missing copy is not requested', () => {
+  beforeEach(() => { _setSeasonManifestForTests([]) })
+  afterEach(() => { _setSeasonManifestForTests(null) })
 
-  it('shows the normal art until a probe answers, and asks for the quarter copy only after the holiday copy said no', async () => {
+  it('shows the normal art at once when a copy is not shipped, falling through to the quarter copy in the same look', () => {
     drawn('christmas', 'winter')
     expect(seasonalUrl('/rooms/c.png', CHRISTMAS_DAY)).toBe('/rooms/c.png')
-    expect(_seasonProbesForTests()).toContain('/rooms/c-xmas.webp')
-    expect(_seasonProbesForTests()).not.toContain('/rooms/c-winter.webp')
-    await probesAnswer() // no Image in node: the holiday copy's probe says no
-    expect(seasonalUrl('/rooms/c.png', CHRISTMAS_DAY)).toBe('/rooms/c.png')
-    expect(_seasonProbesForTests()).toContain('/rooms/c-winter.webp')
-    await probesAnswer()
-    expect(seasonalUrl('/rooms/c.png', CHRISTMAS_DAY)).toBe('/rooms/c.png')
+    expect(_seasonProbesForTests()).toEqual(['/rooms/office-day-xmas.webp', '/rooms/office-day-winter.webp', '/rooms/c-xmas.webp', '/rooms/c-winter.webp'])
   })
 
-  it('seasonHasArt is null while its key file is being asked about, then the answer', async () => {
-    expect(seasonHasArt('spring')).toBeNull()
-    await probesAnswer()
+  it('seasonHasArt is false at once when the key file is not shipped, and true when the test hook says it is', () => {
     expect(seasonHasArt('spring')).toBe(false)
     drawn('summer')
     expect(seasonHasArt('summer')).toBe(true)
+  })
+})
+
+describe('the shipped seasonal list', () => {
+  afterEach(() => { _setSeasonManifestForTests(null) })
+
+  it('matches the copies in public/, and is what the page uses', () => {
+    const listed = listSeasonFiles()
+    expect([...SEASON_FILES].sort()).toEqual(listed)
+    expect(SEASON_FILES.has('/rooms/office-day-autumn.webp')).toBe(true)
+    expect(SEASON_FILES.has('/sprites/decoration/monstera-plant-autumn.webp')).toBe(true)
+  })
+
+  it('uses a shipped autumn room and does not request a character copy that is not there', () => {
+    _resetSeasonProbesForTests()
+    expect(seasonalUrl('/rooms/office-day.png', NOVEMBER)).toBe('/rooms/office-day-autumn.webp')
+    expect(seasonalUrl('/sprites/characters/Claude-1-front-left.png', NOVEMBER)).toBe('/sprites/characters/Claude-1-front-left.png')
+    expect(_seasonProbesForTests()).toEqual([
+      '/rooms/office-day-autumn.webp',
+      '/sprites/characters/Claude-1-front-left-autumn.webp',
+    ])
+    expect(SEASON_FILES.has('/sprites/characters/Claude-1-front-left-autumn.webp')).toBe(false)
   })
 })
