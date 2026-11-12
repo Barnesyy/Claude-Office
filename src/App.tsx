@@ -51,6 +51,8 @@ import {
   useVariant, getIncident, pinIncidentFromUrl, failureToolFromStatus, signalIncidentInput,
 } from './incident'
 import IncidentLayer from './components/IncidentLayer'
+import ProgressionLayer from './components/ProgressionLayer'
+import { dispatchProgression, loadProgression, type ProgressionEvent } from './progression'
 import TaskBoard from './components/TaskBoard'
 import { dispatchTaskBoards } from './taskBoard'
 import RoomBackdrop from './components/RoomBackdrop'
@@ -797,6 +799,9 @@ const App: React.FC = () => {
       dispatchIncident({ type: 'command', at: Date.now(), cmd: action.variant === 'incident' ? 'incident' : 'all-clear', reason: 'remote' })
       return
     }
+    // XP, trophies, unlocks (server/progression.js): the progression store's alone
+    if ((action.type as string).startsWith('progression_')) { dispatchProgression(action as unknown as ProgressionEvent); return }
+    if (action.type === 'snapshot') void loadProgression(true) // a (re)connect: catch up on what was missed
     // Payroll / electricity / memory (the status-line feed): its own store, no agent involved
     if (action.type === 'session_status' || action.type === 'agent_status') {
       dispatchMeters(action)
@@ -1701,6 +1706,8 @@ const App: React.FC = () => {
 
           {/* Incident mode: days-since sign (every mode), tint / beacon / status TV (incident only) */}
           {officeInView && <IncidentLayer />}
+          {/* Progression: trophy cabinet, mailbox, binder, shipped bin, garden, unlockables (nothing while it is off) */}
+          {officeInView && !isSimMode && <ProgressionLayer />}
 
           {/* Day/night overlay */}
           <div className={`day-overlay ${effectivePhase}`} />

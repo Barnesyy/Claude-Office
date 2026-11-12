@@ -31,6 +31,8 @@ import type { SessionInfo } from '../types'
 import { pillLabel } from './SessionStrip'
 import { officeHttpBase } from '../serverUrl'
 import TodayPanel from './TodayPanel'
+import ProgressionPanel from './ProgressionPanel'
+import { useProgression, openProgressionPanel, closeProgressionPanel, hasNews } from '../progression'
 import '../styles/strip.css'
 
 const params = new URLSearchParams(window.location.search)
@@ -142,6 +144,7 @@ const StatusStrip: React.FC<StatusStripProps> = ({ office, sessions = [], readOn
   // Sample the reducer's health once a second (also ticks the "ago" labels)
   const [view, setView] = useState(() => ({ health: office.current?.health ?? null, now: Date.now() }))
   const [todayOpen, setTodayOpen] = useState(false)
+  const progression = useProgression()
   const todayRef = useRef<HTMLButtonElement>(null)
   const closeToday = useCallback(() => setTodayOpen(false), [])
   useEffect(() => {
@@ -214,9 +217,21 @@ const StatusStrip: React.FC<StatusStripProps> = ({ office, sessions = [], readOn
       >
         today
       </button>
+      {progression.snapshot?.enabled && (
+        <button
+          type="button"
+          className={`strip-item strip-level${progression.panel ? ' open' : ''}${hasNews(progression) ? ' news' : ''}`}
+          onClick={() => (progression.panel ? closeProgressionPanel() : openProgressionPanel('office'))}
+          title={`Office level ${progression.snapshot.level}: ${progression.snapshot.title} · ${progression.snapshot.xp} XP (progression)`}
+          data-testid="strip-level"
+        >
+          lv {progression.snapshot.level} · {progression.snapshot.xp} xp
+        </button>
+      )}
       {s && <span className="strip-item strip-version">v{s.version}</span>}
     </div>
     {todayOpen && <TodayPanel onClose={closeToday} anchor={todayRef} />}
+    <ProgressionPanel />
     </>
   )
 }
