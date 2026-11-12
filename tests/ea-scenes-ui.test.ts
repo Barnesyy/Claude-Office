@@ -15,7 +15,7 @@ import WallBoard from '../src/components/WallBoard'
 import CommandCentre from '../src/components/CommandCentre'
 import {
   EA_EMPTY, cabinets, centreCards, centreColumn, cleanEa, curvePath, dispatchEa, eaScreenPairs, getEa, money, reportLines,
-  resetEa, riskByWorker, equityCaption, queueLines, stationHeadline, stationLights, wallMode, wallModesWithContent, type EaState,
+  resetEa, riskByWorker, equityCaption, queueLines, choiceLabel, stationHeadline, stationLights, wallMode, wallModesWithContent, type EaState,
 } from '../src/eaScenes'
 import { deskScreens } from '../src/screens'
 import type { Agent, SessionInfo } from '../src/types'
@@ -209,5 +209,15 @@ describe('Command Centre', () => {
     expect(centreColumn({ ...old, main: { ...old.main!, needsYou: { ...old.main!.needsYou!, since: now - 60_000 } } }, now)).toBe('needs-you')
     const cols = centreCards([old], [], now)
     expect(cols.stale[0]).toMatchObject({ id: 'g', since: now - 20 * 3600_000 })
+  })
+})
+
+describe('equity picker labels', () => {
+  it('names the file and tester folder, folded copies, and marks the EA being worked on', () => {
+    const t = new Date(2026, 10, 12, 17, 36).getTime()
+    expect(choiceLabel({ name: 'R1802.htm', expert: 'BPASDR16Twin', symbol: 'NAS_BB13', period: 'M5 (2019.01.01 - 2026.09.01)', mtime: t, netProfit: 1, file: 'R1802.htm', folder: 'BlackBull tester 2', also: 1, focus: true }))
+      .toBe('◆ BPASDR16Twin · NAS_BB13 · M5 (2019.01.01 - 2026.09.01) · 17:36 — R1802.htm in BlackBull tester 2 (+1 copy)')
+    expect(choiceLabel({ name: 'a.htm', expert: null, symbol: null, period: null, mtime: t, netProfit: null }))
+      .toBe('a.htm · 17:36')
   })
 })

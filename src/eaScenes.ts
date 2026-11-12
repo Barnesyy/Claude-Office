@@ -70,7 +70,15 @@ export interface EaQueue {
   latest: (EaQueueRun & { finishedAt?: number | null; lastCase?: string | null; report: EaReport | null; why: string | null }) | null
 }
 
-export interface EaChoice { path?: string; name: string; expert: string | null; symbol: string | null; period: string | null; mtime: number; netProfit: number | null }
+export interface EaChoice {
+  path?: string; name: string; expert: string | null; symbol: string | null; period: string | null; mtime: number; netProfit: number | null
+  /** The report's file name and its tester folder (install name, else the data folder id's start) */
+  file?: string; folder?: string
+  /** How many other copies of the same result (another form or folder) were folded into this one */
+  also?: number
+  /** A build of the EA being worked on */
+  focus?: boolean
+}
 
 export interface EaEquity extends EaReport {
   source: 'run' | 'folder' | 'focus' | 'pinned'
@@ -220,7 +228,9 @@ export function equityCaption(eq: Pick<EaEquity, 'expert' | 'name' | 'symbol' | 
 export function choiceLabel(c: EaChoice): string {
   const t = new Date(c.mtime)
   const time = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`
-  return [c.expert ?? c.name, c.symbol, c.period, time].filter(Boolean).join(' · ').slice(0, 110)
+  const head = [c.expert ?? c.name, c.symbol, c.period, time].filter(Boolean).join(' · ').slice(0, 100)
+  const where = [c.file, c.folder].filter(Boolean).join(' in ')
+  return `${c.focus ? '◆ ' : ''}${head}${where ? ` — ${where}` : ''}${c.also ? ` (+${c.also} cop${c.also === 1 ? 'y' : 'ies'})` : ''}`.slice(0, 180)
 }
 
 /** The queue's lines for the station card: per tester what runs, and how many wait. */

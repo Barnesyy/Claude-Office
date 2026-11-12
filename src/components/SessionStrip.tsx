@@ -26,7 +26,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { Agent, SessionInfo } from '../types'
-import { mainId, isMainAgent, mainTone, mainPillText, shortModel, projectFromCwd, isStaleNeedsYou, needsYouSince, formatAge, type PillTone } from '../mainState'
+import { mainId, isMainAgent, mainTone, mainPillText, shortModel, projectFromCwd, isStaleNeedsYou, needsYouSince, formatAge, comparePills, type PillTone } from '../mainState'
 
 // Main-thread activity counts as "busy" for this long after the last tool call
 // (only used while no main record has arrived — an old server)
@@ -96,8 +96,7 @@ const SessionStrip: React.FC<SessionStripProps> = ({ sessions, agents }) => {
   const ordered = [...sessions].sort((a, b) =>
     (groupStart.get(projectGroup(a))! - groupStart.get(projectGroup(b))!) ||
     projectGroup(a).localeCompare(projectGroup(b)) ||
-    (a.state === 'ended' ? 1 : 0) - (b.state === 'ended' ? 1 : 0) ||
-    (isStaleNeedsYou(a, now) ? 1 : 0) - (isStaleNeedsYou(b, now) ? 1 : 0) || (a.startedAt ?? 0) - (b.startedAt ?? 0))
+    comparePills(a, b, now))
   const grouped = groupStart.size > 1
 
   return (

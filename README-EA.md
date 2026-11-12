@@ -293,13 +293,15 @@ node scripts/ea-demo.mjs --to /tmp/ao/proj [--with-fixtures] [--no-report] [--ho
   - otherwise the Workbench's newest run of that EA.
 - A different report only replaces the current one after `ea.equityDwellMinutes` (default 10) on the wall.
 - The caption names the EA, symbol, period and date range.
-- The picker on the wall pins one of the 14 newest reports, or goes back to Auto. It only works on the loopback page with the UI token. The pin is kept in `<home>/ea-equity.json`.
+- Auto looks through the newest 60 results, so the EA being worked on is still found when other EAs' reports are newer. As soon as that EA has a finished report, the wall switches to it (after the dwell) and keeps it over newer reports of other EAs.
+- The picker lists one entry per result: the same run saved as .htm and .xml, or copied into another tester folder, is folded into one ("+1 copy"). Each entry names its file and tester folder (the Workbench install name when known). ◆ marks builds of the EA being worked on.
+- The picker on the wall pins one of the 14 newest reports (plus the focus EA's newest, if it is older), or goes back to Auto. It only works on the loopback page with the UI token. The pin is kept in `<home>/ea-equity.json`.
 
 ### Stale needs-you
 
 - A session waiting on you for more than 6 h moves to a separate **stale (>6h)** bucket, so it no longer inflates the main count.
 - Where it appears: the status strip, the Command Centre's "Stale >6h" column, and pills that are faded and sorted last.
-- Each needs-you pill and tooltip shows how long it has waited.
+- Each needs-you pill and tooltip shows how long it has waited. Within a project group, pills are ordered: fresh needs-you (the most recent first), then the rest by start time, then stale needs-you, then ended.
 
 - Fixtures: `tests/fixtures/ea/` (regenerate with `node tests/fixtures/ea/make-ea-fixtures.mjs`).
 - Tests: `tests/ea-scenes.test.ts`, `tests/ea-office.test.ts`, `tests/ea-scenes-ui.test.ts`, `tests/ea-polish.test.ts`.
