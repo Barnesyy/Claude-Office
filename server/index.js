@@ -47,6 +47,7 @@ import {
   lanFullRouteAllowed, createLockout,
 } from './lan.js'
 import { loadOrCreateLanCert } from './lan-cert.js'
+import { notifyTaps, addEventTap } from './event-taps.js'
 import { createRecap, recapLine, isRecapDate, localDate } from './recap.js'
 import { createPromptQueue, parseMention, resolveMention, mentionName, MARKER_DIR_NAME, MAX_PROMPT_LEN, MAX_QUEUED_PER_SESSION } from './prompt-queue.js'
 
@@ -4769,6 +4770,8 @@ function onClientInteraction(ws, data, by) {
 
 function broadcast(payload) {
   if (!payload) return
+  // The progression layer's hook point (server/event-taps.js)
+  notifyTaps(payload)
   const full = JSON.stringify(payload)
   let readOnly  // undefined: not built yet; null: withheld from read-only clients
   let sent = 0
@@ -5013,4 +5016,5 @@ export {
   sendAgentMessage,
   sweepStale,
   broadcast,
+  addEventTap,
 }
