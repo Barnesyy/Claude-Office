@@ -14,7 +14,7 @@ It keeps upstream's pixel art and office, and changes how it is fed and what it 
 ```powershell
 cd "C:\Users\Barnesy\OneDrive\EA Development\Claude-Office"   # wherever you cloned it
 npm ci
-npm rebuild better-sqlite3 esbuild      # npm 11 skips install scripts; this builds the two native bits
+npm rebuild better-sqlite3 esbuild      # only needed if an older checkout skipped install scripts (package.json allowScripts covers npm 12)
 copy office.config.ea.example.json office.config.json   # start-office.ps1 does this if it's missing
 ```
 
@@ -54,8 +54,10 @@ transcript watcher by default. `scripts/stop-office.sh` stops them by pid file.
 **How permission waits are inferred** (transcripts don't record dialogs):
 
 - When `~/.claude/sessions/<pid>.json` says `waiting`, a dialog is open, and the session shows "needs you" right away.
-- Otherwise a tool call with no result after a grace period counts as a wait, if your permission mode and `settings.json` allow rules say it would have asked. The grace is 6 s, or 15 s for Bash, because long MT5 runs are normal.
-- When the registry says `busy`, the tool is running, not asking.
+- Otherwise a tool call with no result after a grace period counts as a wait, if your permission mode and `settings.json` allow rules say it would have asked. The grace is 6 s, or 15 s for Bash and PowerShell, because long MT5 runs are normal.
+- In `auto` mode (what the Claude desktop app uses) a slow call is never guessed to be a wait: only the registry or a question tool (AskUserQuestion, ExitPlanMode) raises one. On 6 hours of Jake's real sessions the guess raised 117 false "needs you"; now none.
+- When the registry says `busy`, the tool is running, not asking. When it says `idle`, an open turn ends (the desktop app often ends a turn on a chat-reply tool call).
+- Registry files whose process is gone are ignored. A desktop thread's name in the registry ("Research School Run settings") becomes the pill title; derived names ("ea-development-58") do not.
 
 The transcript watcher removes anything that would let the office answer a dialog. In transcript mode the office can only show waits, not answer them.
 
@@ -79,8 +81,8 @@ The transcript watcher removes anything that would let the office answer a dialo
 }
 ```
 
-- `preset: "ea-development"` is the same as the `projects` and `onlyListed` shown above. That folder's encoded dir is `C--Users-Barnesy-OneDrive-EA-Development`.
-- Labels: a session in the project root is "EA Dev". One in `EA Development\School Run` is **"EA Dev · School Run"**. Pills are grouped under an `EA DEV` heading, and a session you `/rename` keeps an "EA Dev" chip.
+- `preset: "ea-development"` lists two projects: **EA Dev** (`C:\Users\Barnesy\OneDrive\EA Development`, dir `C--Users-Barnesy-OneDrive-EA-Development`) and **EA Workbench** (`C:\Users\Barnesy\AppData\Local\EAWorkbench`), with `onlyListed: true`.
+- Labels: a session in the project root is "EA Dev". One in `EA Development\School Run` is **"EA Dev · School Run"**; deeper than two folders, only the last one shows. The label is the folder the session started in, so it stays put when Claude `cd`s around. Pills are grouped under an `EA DEV` heading, and a session you `/rename` keeps an "EA Dev" chip. Registry-only (grey) pills get the same labels.
 - `onlyListed: true` hides everything outside the listed projects. That covers the watcher's events and the registry-only grey pills.
 - Environment variables override the config: `AGENT_OFFICE_TRANSCRIPTS_DIR`, `CLAUDE_CONFIG_DIR`, `AGENT_OFFICE_REGISTRY_DIR`, `AGENT_OFFICE_PYTHON`, `AGENT_OFFICE_PORT`, `AGENT_OFFICE_HOME`.
 - At start-up, a session active in the last `activeWindowMinutes` has its current turn rebuilt. Older ones join when they next write. A session silent for `idleEndMinutes`, and absent from the registry, ends.
@@ -92,6 +94,25 @@ The office, the chat and everything else work without them.
 
 - To turn it on, start with `AGENT_OFFICE_CHAT_AI=1` (bash `start-office.sh` only; it needs bash and the `claude` CLI).
 - The UI's cron toggle starts paused unless that variable is set.
+
+## Portable release folder
+
+A folder with a `portable-home` file in its root (the release zip has one) keeps its runtime (token, logs, pids,
+chat db) in `.agent-office` inside that folder instead of `%USERPROFILE%\.agent-office`. Delete the file to go back.
+`package.json` has an `allowScripts` block, so npm 12 runs better-sqlite3's install script (otherwise it is skipped
+silently and the server fails on start).
+
+## Replaying real sessions
+
+`scripts/replay-tail.mjs` replays a copy of a real `.claude` folder (its `projects` and `sessions/*.json`) as if it
+were happening now: everything up to `--at` at once (timestamps and mtimes moved to now), then the rest on its own clock.
+
+```bash
+node scripts/replay-tail.mjs --from <copy of .claude> --to /tmp/live --at 2026-11-12T04:45:00Z --speed 3
+AGENT_OFFICE_HOME=/tmp/ao CLAUDE_CONFIG_DIR=/tmp/live node scripts/transcript-watch.mjs --registry-any-pid
+```
+
+`--registry-any-pid` trusts registry files whose pid is not running here (they came from another machine).
 
 ## Replay demo (no Claude needed)
 

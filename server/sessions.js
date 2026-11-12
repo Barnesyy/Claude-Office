@@ -376,6 +376,7 @@ export function mountRegistry(app, {
   endSession,
   forgetSession,
   onStatusChange = () => {},
+  projectOf: labelOf = null,
   alive = pidAlive,
   startOf = processStart,
   now = () => Date.now(),
@@ -402,6 +403,9 @@ export function mountRegistry(app, {
   /** A live entry nobody has hooks for: a new unhooked session. */
   function arrive(entry, t) {
     const session = registryToSession(entry, t)
+    // The same readable label the transcript watcher gives (EA Dev, EA Workbench)
+    const named = typeof labelOf === 'function' ? labelOf(entry) : null
+    if (named) session.project = named
     sessions.set(session.id, session)
     log(`[registry] + ${label(entry)}: ${entry.status ?? '?'} -> ${session.main.state}, not hooked`)
     broadcast(toEvent(session, 'session_started'))

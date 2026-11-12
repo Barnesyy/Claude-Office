@@ -1966,6 +1966,11 @@ const registry = mountRegistry(app, {
   broadcast,
   registryDir: REGISTRY_DIR,
   isOwnSession: entry => isBotSession(entry) || outOfFocus(entry),
+  projectOf: entry => {
+    if (!PROJECT_FOCUS?.projects.length || !entry?.cwd) return null
+    const { project, label } = labelFor(entry.cwd, null, PROJECT_FOCUS.projects)
+    return project ? label : null
+  },
   toEvent: sessionEvent,
   endSession,
   forgetSession,
@@ -3220,8 +3225,10 @@ function applyEvent(body) {
       const spawner = agent.parentSubagentId ? record.parentId : session ? mainActivityId(session.id) : null
       if (spawner && !body.recovered) recordActivity(spawner, { kind: 'tool', tool: 'Agent', text: `spawned ${record.name}: ${record.task}` }, now)
       console.log(`[+] Agent spawned: ${record.name} (${record.role}) — ${id}${record.parentId ? ` (parent ${record.parentId})` : ''}${session ? ` [${session.project ?? session.id}]` : ''}`)
-      // A SubagentStart that overtook this spawn on the way here is waiting for it
-      adoptPendingStart(record)
+      // A SubagentStart that overtook this spawn on the way here is waiting for it.
+      // Not for a stand-in (`recovered`): it is made for one known subagent id,
+      // and adopting would tie it to another worker's parked start.
+      if (!body.recovered) adoptPendingStart(record)
       saveAgents()
 
       // Proactive message — announce task in chat

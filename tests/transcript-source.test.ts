@@ -55,10 +55,13 @@ describe('projects and labels', () => {
     expect(encodeProjectPath('C:\\Users\\Barnesy\\OneDrive\\EA Development')).toBe('C--Users-Barnesy-OneDrive-EA-Development')
   })
 
-  it('the ea-development preset lists the EA folder only, and labels sub folders', () => {
+  it('the ea-development preset lists the EA folders only, and labels sub folders', () => {
     const cfg = resolveTranscriptConfig({ transcripts: { preset: 'ea-development' } }, {})
     expect(cfg.onlyListed).toBe(true)
-    expect(cfg.projects.map(p => p.name)).toEqual(['EA Dev'])
+    expect(cfg.projects.map(p => p.name).sort()).toEqual(['EA Dev', 'EA Workbench'])
+    expect(labelFor('C:\\Users\\Barnesy\\AppData\\Local\\EAWorkbench', null, cfg.projects).label).toBe('EA Workbench')
+    expect(labelFor('', 'C--Users-Barnesy-AppData-Local-EAWorkbench', cfg.projects).label).toBe('EA Workbench')
+    expect(labelFor('C:\\Users\\Barnesy\\OneDrive\\EA Development\\MQL5\\Experts\\Market Wizards EA', null, cfg.projects).label).toBe('EA Dev · Market Wizards EA')
     expect(labelFor('C:\\Users\\Barnesy\\OneDrive\\EA Development', null, cfg.projects).label).toBe('EA Dev')
     expect(labelFor('c:/users/barnesy/onedrive/ea development/School Run', null, cfg.projects).label).toBe('EA Dev · School Run')
     expect(labelFor('', 'C--Users-Barnesy-OneDrive-EA-Development-DAX-Ideas', cfg.projects).label).toBe('EA Dev · DAX Ideas')
@@ -152,7 +155,7 @@ describe('permission waits from a quiet transcript', () => {
     const lines = readFileSync(join(FIXTURES, sessionDir, file), 'utf8').split('\n').slice(0, keepLines)
     writeFileSync(join(dir, file), lines.join('\n') + '\n')
     const sessionId = file.slice(0, -6)
-    if (registry) writeFileSync(join(claude, 'sessions', '123.json'), JSON.stringify({ pid: 123, sessionId, status: registry }))
+    if (registry) writeFileSync(join(claude, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId, status: registry }))
     const cfg = resolveTranscriptConfig({}, { CLAUDE_CONFIG_DIR: claude })
     let now = END
     const events: any[] = []

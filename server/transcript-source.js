@@ -32,6 +32,7 @@ import { spawn, spawnSync } from 'child_process'
 import { existsSync, readdirSync, statSync, openSync, readSync, closeSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { join, basename, dirname } from 'path'
+import { pidAlive } from './sessions.js'
 import { fileURLToPath } from 'url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -49,7 +50,10 @@ export function encodeProjectPath(p) {
 /** Built-in project presets (`"preset": "ea-development"` in office.config.json). */
 export const PRESETS = Object.freeze({
   'ea-development': {
-    projects: [{ name: 'EA Dev', path: 'C:\\Users\\Barnesy\\OneDrive\\EA Development' }],
+    projects: [
+      { name: 'EA Dev', path: 'C:\\Users\\Barnesy\\OneDrive\\EA Development' },
+      { name: 'EA Workbench', path: 'C:\\Users\\Barnesy\\AppData\\Local\\EAWorkbench' },
+    ],
     onlyListed: true,
   },
 })
@@ -112,7 +116,8 @@ export function labelFor(cwd, encodedDir, projects) {
   for (const p of projects) {
     if (n && (n === p.norm || n.startsWith(p.norm + '/'))) {
       const rel = cwd.replace(/\\/g, '/').slice(p.norm.length).split('/').filter(Boolean)
-      return { project: p, label: rel.length ? `${p.name} · ${rel.join(' / ')}` : p.name }
+      // Deep folders keep the pill short: "EA Dev · Trader Tom School Run EA", not the whole path
+      return { project: p, label: rel.length ? `${p.name} · ${rel.length > 2 ? rel[rel.length - 1] : rel.join(' / ')}` : p.name }
     }
   }
   const enc = String(encodedDir ?? '').toLowerCase()
@@ -132,10 +137,19 @@ export function labelFor(cwd, encodedDir, projects) {
 /** Tools that never ask (read-only, or the office's own bookkeeping). */
 const NEVER_ASKS = new Set(['Read', 'Grep', 'Glob', 'LS', 'TodoWrite', 'TodoRead', 'Agent', 'Task', 'NotebookRead',
   'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'TaskOutput', 'TaskStop', 'BashOutput', 'KillShell', 'KillBash',
-  'WebSearch', 'Skill', 'ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'SubagentHandback'])
+  'WebSearch', 'Skill', 'ToolSearch', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'SubagentHandback',
+  'SendMessage', 'Monitor', 'ReadNotifications', 'CronCreate', 'CronList', 'CronDelete', 'SendUserFile'])
 /** Tools that always wait on the person (a question, a plan to approve). */
 const ALWAYS_ASKS = new Set(['AskUserQuestion', 'ExitPlanMode'])
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+/** Shell tools: Bash everywhere, PowerShell on Windows (same rules, same longer grace). */
+export const SHELL_TOOLS = new Set(['Bash', 'PowerShell'])
+/**
+ * Permission modes where Claude Code decides without a dialog. "auto" lets a
+ * classifier approve or block each call (a block goes back to Claude as a
+ * tool error, no dialog), so a slow call there is a running call, not a wait.
+ */
+const NO_DIALOG_MODES = new Set(['bypassPermissions', 'auto', 'dontAsk'])
 
 function globToRegex(glob) {
   const esc = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*/g, '\u0000').replace(/\*/g, '[^/]*').replace(/\u0000/g, '.*')
@@ -150,7 +164,7 @@ export function ruleAllows(rule, tool, input = {}) {
   if (name.startsWith('mcp__')) return tool === name || tool.startsWith(name + '__') || (name.endsWith('__*') && tool.startsWith(name.slice(0, -1)))
   if (name !== tool) return false
   if (spec === undefined || spec === '' || spec === '*') return true
-  if (tool === 'Bash') {
+  if (SHELL_TOOLS.has(tool)) {
     const cmd = String(input.command ?? '').trim()
     if (spec.endsWith(':*')) return cmd.startsWith(spec.slice(0, -2))
     if (spec.includes('*')) return globToRegex(spec).test(cmd)
@@ -169,9 +183,9 @@ export function needsPermission(tool, input, mode, allowRules = []) {
   if (!tool) return false
   if (ALWAYS_ASKS.has(tool)) return true
   if (NEVER_ASKS.has(tool)) return false
-  if (mode === 'bypassPermissions') return false
+  if (NO_DIALOG_MODES.has(mode)) return false
   if (mode === 'acceptEdits' && EDIT_TOOLS.has(tool)) return false
-  if (tool === 'Bash' && input?.run_in_background) return false
+  if (SHELL_TOOLS.has(tool) && input?.run_in_background) return false
   return !allowRules.some(rule => ruleAllows(rule, tool, input ?? {}))
 }
 
@@ -213,6 +227,43 @@ export function payloadTime(p) { return payloadTimes.get(p) }
 const REJECTED = /doesn't want to proceed with this tool use|tool use was rejected|permission to use .* has been denied/i
 const INTERRUPTED = /^\[Request interrupted by user/
 
+const stripTags = t => String(t ?? '').replace(/<[^>]*>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
+const attr = (tag, name) => { const m = new RegExp(`\\b${name}="([^"]*)"`).exec(tag); return m ? m[1] : '' }
+
+/**
+ * What a prompt says, without the wrappers the Claude desktop app puts around
+ * it. Returns { text, human } — human is true for a message the person typed
+ * (a plain prompt, or a <wake> carrying a message from="human"), false for
+ * relays, other sessions' messages and scheduled tasks. Pure.
+ *   <wake ...><project ...><thread ...><message from="human" ...>hi</message>...  -> "hi"
+ *   <relay from="coordinator" ...><note>go</note></relay>                          -> "relay from coordinator: go"
+ *   <project_claude_message ...><relay ...><note>x</note>...                       -> "relay from …: x"
+ *   <scheduled-task name="daily-check" ...>                                        -> "scheduled task: daily-check"
+ */
+export function cleanPrompt(raw) {
+  const text = String(raw ?? '')
+  const head = text.trimStart()
+  if (!head.startsWith('<')) return { text: text.trim(), human: true }
+  const open = /^<([A-Za-z_-]+)([^>]*)>/.exec(head)
+  const tag = open?.[1] ?? ''
+  if (tag === 'wake') {
+    const msgs = [...head.matchAll(/<message\b([^>]*)>([\s\S]*?)<\/message>/g)]
+    const human = msgs.filter(m => attr(m[1], 'from') === 'human')
+    const pick = (human.length ? human : msgs).at(-1)
+    if (pick) return { text: stripTags(pick[2]), human: human.length > 0 }
+    return { text: stripTags(head), human: false }
+  }
+  if (tag === 'relay' || tag === 'project_claude_message') {
+    const relay = /<relay\b([^>]*)>/.exec(head)
+    const note = /<note\b[^>]*>([\s\S]*?)<\/note>/.exec(head)
+    const from = relay ? attr(relay[1], 'from') : ''
+    const body = stripTags(note ? note[1] : head)
+    return { text: from ? `relay from ${from}: ${body}` : `from another session: ${body}`, human: false }
+  }
+  if (tag === 'scheduled-task') return { text: `scheduled task: ${attr(open[2], 'name') || 'run'}`, human: false }
+  return { text: text.trim(), human: false }
+}
+
 export class TranscriptSession {
   /**
    * @param {{sessionId: string, transcriptPath: string, encodedDir?: string, projects?: object[]}} opts
@@ -223,6 +274,8 @@ export class TranscriptSession {
     this.encodedDir = encodedDir
     this.projects = projects
     this.cwd = ''
+    /** The cwd the session started in: its label stays put when Claude cd's into sub folders */
+    this.homeCwd = ''
     this.model = ''
     this.title = ''
     this.started = false
@@ -242,7 +295,11 @@ export class TranscriptSession {
     this.subagents = new Map()
   }
 
-  get label() { return labelFor(this.cwd, this.encodedDir, this.projects) }
+  get label() { return labelFor(this.homeCwd || this.cwd, this.encodedDir, this.projects) }
+
+  noteCwd(cwd) {
+    if (typeof cwd === 'string' && cwd && !this.homeCwd) this.homeCwd = cwd
+  }
 
   base(extra = {}) {
     const p = { session_id: this.sessionId, transcript_path: this.transcriptPath, ...extra }
@@ -282,6 +339,7 @@ export class TranscriptSession {
       out.push(this.base({ hook_event_name: 'CwdChanged', old_cwd: this.cwd, new_cwd: r.cwd }))
       this.cwd = r.cwd
     } else if (typeof r.cwd === 'string' && r.cwd && !this.cwd) this.cwd = r.cwd
+    this.noteCwd(this.cwd)
     if (typeof r.permissionMode === 'string') this.permissionMode = r.permissionMode
 
     switch (r.type) {
@@ -289,7 +347,7 @@ export class TranscriptSession {
       case 'custom-title':
       case 'ai-title': {
         const t = r.customTitle ?? r.aiTitle ?? r.title ?? r.summary
-        if (typeof t === 'string' && t.trim() && (r.type === 'custom-title' || !this.titleIsCustom)) {
+        if (typeof t === 'string' && t.trim() && !this.registryName && (r.type === 'custom-title' || !this.titleIsCustom)) {
           this.title = t.trim().slice(0, 80)
           if (r.type === 'custom-title') this.titleIsCustom = true
           if (this.started) out.push(this.startPayload('resume'))
@@ -298,7 +356,8 @@ export class TranscriptSession {
       }
       case 'system': {
         if (r.subtype === 'compact_boundary') out.push(this.base({ hook_event_name: 'PostCompact', trigger: r.compactMetadata?.trigger ?? 'auto' }))
-        else if (r.subtype === 'turn_duration' && this.turnOpen && this.pending.size === 0) out.push(this.stop())
+        // turn_duration, or the summary of the Stop hooks that ran: the turn is over
+        else if ((r.subtype === 'turn_duration' || r.subtype === 'stop_hook_summary') && this.turnOpen && this.pending.size === 0) out.push(this.stop())
         return out
       }
       case 'user': return this.userRecord(r, null, out)
@@ -316,8 +375,23 @@ export class TranscriptSession {
     return this.base({ hook_event_name: 'Stop', last_assistant_message: text, background_tasks: background, session_crons: [], stop_hook_active: false })
   }
 
+  /** A worker is done: SubagentStop, once. */
+  subagentDone(id, text, out) {
+    const s = this.subagents.get(id)
+    if (!s || s.done || !s.started) return
+    s.done = true
+    out.push(this.base({ hook_event_name: 'SubagentStop', agent_id: id, agent_type: s.agentType,
+      last_assistant_message: text || s.lastText || 'done', agent_transcript_path: s.transcriptPath }))
+  }
+
   userRecord(r, sub, out) {
-    if (r.isMeta) return out
+    if (r.isMeta) {
+      // The desktop app's hand-back: the worker's report arrives as a meta
+      // message from its peer (origin { kind: 'peer', from: <subagent id> })
+      const o = r.origin
+      if (!sub && o && typeof o === 'object' && o.kind === 'peer' && typeof o.from === 'string') this.subagentDone(o.from, '', out)
+      return out
+    }
     if (r.isCompactSummary) { out.push(this.base({ hook_event_name: 'PostCompact', trigger: 'auto' })); return out }
     const content = r.message?.content
     const results = Array.isArray(content) ? content.filter(b => b && b.type === 'tool_result') : []
@@ -356,8 +430,13 @@ export class TranscriptSession {
     this.turnOpen = true
     this.lastKind = 'prompt'
     this.lastText = ''
-    if (!this.title && !text.trimStart().startsWith('<')) this.firstPrompt ??= text.trim().split('\n')[0].slice(0, 60)
-    out.push(this.base({ hook_event_name: 'UserPromptSubmit', prompt: text, permission_mode: this.permissionMode }))
+    const isWakeup = text.trimStart().startsWith('<task-notification>')
+    const clean = isWakeup ? { text, human: false } : cleanPrompt(text)
+    if (!this.title && clean.human && clean.text) this.firstPrompt ??= clean.text.split('\n')[0].slice(0, 60)
+    const p = this.base({ hook_event_name: 'UserPromptSubmit', prompt: isWakeup ? text : (clean.text || text), permission_mode: this.permissionMode })
+    // Not the person typing (a relay, another session, a scheduled task): not the boss's words
+    if (!isWakeup && !clean.human) p.prompt_from_other = true
+    out.push(p)
     return out
   }
 
@@ -409,6 +488,10 @@ export class TranscriptSession {
     const text = typeof b.content === 'string' ? b.content : textOf(b.content)
     const extra = sub ? { agent_id: sub.id, agent_type: sub.agentType } : (call.agentId ? { agent_id: call.agentId, agent_type: call.agentType } : {})
     const common = { tool_name: call.name, tool_input: call.input, tool_use_id: id, ...extra }
+    // A worker's last act in the desktop app: SubagentHandback. Its stop goes
+    // first, with its last words (the tracker's own completion from the
+    // PostToolUse below then finds it done already)
+    if (sub && call.name === 'SubagentHandback' && !b.is_error) this.subagentDone(sub.id, sub.lastText, out)
     if (b.is_error || REJECTED.test(text)) {
       const error = REJECTED.test(text) ? 'rejected in the terminal' : text || 'error'
       out.push(this.base({ hook_event_name: 'PostToolUseFailure', ...common, error, is_interrupt: false }))
@@ -419,10 +502,13 @@ export class TranscriptSession {
         const sid = response.agentId ?? agentCall?.subagentId
         if (sid && response.status === 'async_launched') {
           const s = this.subagents.get(sid) ?? {}
-          this.subagents.set(sid, { agentType: agentCall?.subagentType ?? 'general-purpose', ...s, background: true, description: agentCall?.description })
+          this.subagents.set(sid, { agentType: agentCall?.subagentType ?? 'general-purpose', ...s, background: true, description: agentCall?.description, prompt: agentCall?.prompt })
         } else if (sid && this.subagents.has(sid)) this.subagents.get(sid).done = true
       }
       out.push(this.base({ hook_event_name: 'PostToolUse', ...common, tool_response: response }))
+      // SendMessage woke a finished worker: it gets a desk again on its next line
+      const revived = call.name === 'SendMessage' && response && typeof response === 'object' ? (response.resumedAgentId ?? response.revivedAgentId) : null
+      if (revived && this.subagents.has(revived)) Object.assign(this.subagents.get(revived), { done: false, started: false, background: true })
     }
     if (!sub) this.lastKind = 'result'
     // The whole batch of that thread answered: PostToolBatch (lowers the thread's hands)
@@ -453,9 +539,21 @@ export class TranscriptSession {
       if (!callId) for (const [id, c] of this.agentCalls) if (!c.subagentId && this.pending.has(id)) { callId = id; break }
       const c = callId ? this.agentCalls.get(callId) : null
       if (c) c.subagentId = agentId
-      s = { ...(s ?? {}), id: agentId, agentType: c?.subagentType ?? s?.agentType ?? 'general-purpose', description: c?.description,
-        background: c?.background ?? s?.background ?? false, transcriptPath, started: true, lastText: '' }
+      s = { ...(s ?? {}), id: agentId, agentType: c?.subagentType ?? s?.agentType ?? 'general-purpose', description: c?.description ?? s?.description, prompt: c?.prompt ?? s?.prompt ?? first,
+        background: c?.background ?? s?.background ?? false, transcriptPath, started: true, done: false, lastText: '' }
       this.subagents.set(agentId, s)
+      if (!c) {
+        // No Agent call seen for this worker (launched before the watcher looked,
+        // or woken again by SendMessage): stand in for its launch, so the office
+        // gets a spawn tied to exactly this subagent id
+        const id = `w-${agentId}`
+        s.background = true
+        out.push(this.base({ hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_use_id: id,
+          tool_input: { subagent_type: s.agentType, description: s.description || 'worker', prompt: s.prompt || '', run_in_background: true } }))
+        out.push(this.base({ hook_event_name: 'PostToolUse', tool_name: 'Agent', tool_use_id: id,
+          tool_input: { subagent_type: s.agentType, description: s.description || 'worker', run_in_background: true },
+          tool_response: { status: 'async_launched', agentId } }))
+      }
       out.push(this.base({ hook_event_name: 'SubagentStart', agent_id: agentId, agent_type: s.agentType }))
     }
     s.id = agentId
@@ -470,7 +568,7 @@ export class TranscriptSession {
    * true / false from Claude Code's registry, or undefined when the session
    * has no registry entry (then the grace periods decide).
    */
-  quietCheck(now, quietMs, { graceMs, bashGraceMs, turnIdleMs, allow = [], defaultMode, registryWaiting } = {}) {
+  quietCheck(now, quietMs, { graceMs, bashGraceMs, turnIdleMs, allow = [], defaultMode, registryWaiting, registryIdle = false } = {}) {
     const out = []
     const mode = this.permissionMode !== 'default' ? this.permissionMode : (defaultMode ?? 'default')
     const candidates = [...this.pending.entries()].filter(([, c]) => !c.raised && c.name !== 'Agent' && c.name !== 'Task')
@@ -478,7 +576,7 @@ export class TranscriptSession {
       let raise = false
       if (registryWaiting === true) raise = true
       else if (registryWaiting === undefined) {
-        const grace = c.name === 'Bash' ? bashGraceMs : graceMs
+        const grace = SHELL_TOOLS.has(c.name) ? bashGraceMs : graceMs
         raise = grace > 0 && quietMs >= grace && needsPermission(c.name, c.input, mode, allow)
       }
       if (!raise) continue
@@ -487,7 +585,10 @@ export class TranscriptSession {
         permission_mode: mode, ...(c.agentId ? { agent_id: c.agentId, agent_type: c.agentType } : {}) }))
       break  // one dialog at a time
     }
-    if (this.turnOpen && this.lastKind === 'text' && this.pending.size === 0 && turnIdleMs > 0 && quietMs >= turnIdleMs) out.push(this.stop())
+    if (this.turnOpen && this.pending.size === 0 && turnIdleMs > 0 && quietMs >= turnIdleMs &&
+      // A text-only reply that went quiet; or Claude Code itself says idle (the
+      // desktop app often ends a turn on a tool call, e.g. a chat reply tool)
+      (this.lastKind === 'text' || registryIdle)) out.push(this.stop())
     return out
   }
 }
@@ -504,8 +605,13 @@ export function findPython(env = process.env, platform = process.platform) {
   else candidates.push(['python3', []], ['python', []])
   for (const [cmd, args] of candidates) {
     try {
-      const r = spawnSync(cmd, [...args, '-c', 'import sys; print(sys.version_info[0])'], { encoding: 'utf8', windowsHide: true, timeout: 5000 })
-      if (r.status === 0 && r.stdout.trim() === '3') return { cmd, args }
+      const r = spawnSync(cmd, [...args, '-c', 'import sys; print(sys.version_info[0]); print(sys.executable)'], { encoding: 'utf8', windowsHide: true, timeout: 5000 })
+      const [major, exe] = String(r.stdout ?? '').trim().split(/\r?\n/)
+      if (r.status !== 0 || major?.trim() !== '3') continue
+      // Why the real python.exe and not py.exe: the launcher would sit between the
+      // watcher and the bridge as one more console process for every start
+      if (cmd === 'py' && exe && existsSync(exe.trim())) return { cmd: exe.trim(), args: [] }
+      return { cmd, args }
     } catch {}
   }
   return null
@@ -654,6 +760,12 @@ export function splitLines(pending, chunk) {
   return { records, rest: text.slice(i + 1) }
 }
 
+/** A catch-up read (start-up on a live session) takes at most this much of a file's tail. */
+const CATCH_UP_MAX_BYTES = 64 * 1024 * 1024
+
+const isPrompt = r => r?.type === 'user' && !r.isMeta && !r.isSidechain && !r.isCompactSummary &&
+  !!textOf(r.message?.content).trim() && !(Array.isArray(r.message?.content) && r.message.content.some(b => b?.type === 'tool_result'))
+
 const SESSION_FILE = /^([0-9a-f]{8}-[0-9a-f-]{27,}|[A-Za-z0-9_-]{8,80})\.jsonl$/
 const AGENT_FILE = /^agent-([A-Za-z0-9_-]{1,80})\.jsonl$/
 
@@ -666,7 +778,8 @@ export class TranscriptWatcher {
    * @param {boolean} [opts.fromStart] read every existing file from its start (replay / tests)
    * @param {(payload: object) => void} [opts.onPayload] tap: every rebuilt hook payload (progression, debugging)
    */
-  constructor({ config, converter, sink, fromStart = false, log = console, onPayload, now = () => Date.now() }) {
+  constructor({ config, converter, sink, fromStart = false, log = console, onPayload, now = () => Date.now(), alive = pidAlive }) {
+    this.alive = alive
     this.config = config
     this.converter = converter
     this.sink = sink
@@ -680,6 +793,7 @@ export class TranscriptWatcher {
     this.sessions = new Map()
     this.queue = Promise.resolve()
     this.settingsCache = new Map()
+    /** sessionId -> { status, name, nameSource, updatedAt } (live pids only) */
     this.registry = new Map()
     this.firstScan = true
     this.timer = null
@@ -746,7 +860,12 @@ export class TranscriptWatcher {
     for (const n of names) {
       try {
         const e = JSON.parse(readFileSync(join(this.config.registryDir, n), 'utf8'))
-        if (e?.sessionId && typeof e.status === 'string') this.registry.set(e.sessionId, e.status)
+        if (!e?.sessionId || typeof e.status !== 'string') continue
+        // A file left behind by a process that is gone says nothing about now
+        if (Number.isInteger(e.pid) && e.pid > 0 && !this.alive(e.pid)) continue
+        const prev = this.registry.get(e.sessionId)
+        if (prev && (prev.updatedAt ?? 0) > (e.updatedAt ?? 0)) continue
+        this.registry.set(e.sessionId, { status: e.status, name: typeof e.name === 'string' ? e.name.trim().slice(0, 80) : '', nameSource: e.nameSource, updatedAt: e.updatedAt })
       } catch {}
     }
   }
@@ -777,11 +896,16 @@ export class TranscriptWatcher {
         // New files are read whole; at start-up only recently active ones are
         // (to rebuild their current turn), unless replaying everything
         const offset = this.fromStart || fresh || recent ? 0 : st.size
-        entry = { ...f, offset, rest: '', lastGrowth: fresh ? now : st.mtimeMs, wasOld: offset > 0, catchUp: !this.fromStart && !fresh && recent }
+        entry = { ...f, offset, rest: '', lastGrowth: fresh ? now : st.mtimeMs, wasOld: offset > 0, catchUp: !this.fromStart && !fresh && recent,
+          // What was there before the watcher looked, learnt (title, model, cwd) when the session next writes
+          learnTo: offset }
         this.files.set(f.path, entry)
       }
       if (st.size > entry.offset) {
-        const { text, end } = readFrom(f.path, entry.offset)
+        // A catch-up read takes the whole file (its tail at most) in one go, so
+        // the turn it rebuilds is the current one, not the one 8 MB in
+        if (entry.catchUp && st.size - entry.offset > CATCH_UP_MAX_BYTES) entry.offset = st.size - CATCH_UP_MAX_BYTES
+        const { text, end } = readFrom(f.path, entry.offset, entry.catchUp ? CATCH_UP_MAX_BYTES : undefined)
         entry.offset = end
         const { records, rest } = splitLines(entry.rest, text)
         entry.rest = rest
@@ -794,10 +918,17 @@ export class TranscriptWatcher {
     // after the Agent call that launched it and before that call's result
     const live = []
     for (const b of batches) {
-      if (b.entry.catchUp) { this.ingest(b.entry, b.records); b.entry.catchUp = false }
-      else b.records.forEach((r, i) => live.push({ entry: b.entry, r, i, t: Date.parse(r?.timestamp) }))
+      let records = b.records
+      if (b.entry.catchUp) { records = this.catchUp(b.entry, records, now); b.entry.catchUp = false }
+      // Untimed rows (titles, modes) ride on the time of the row before them
+      let t = -Infinity
+      records.forEach((r, i) => {
+        const rt = Date.parse(r?.timestamp)
+        if (Number.isFinite(rt)) t = rt
+        live.push({ entry: b.entry, r, i, t })
+      })
     }
-    live.sort((a, b) => (Number.isFinite(a.t) && Number.isFinite(b.t) ? a.t - b.t : 0) || (a.entry === b.entry ? a.i - b.i : 0))
+    live.sort((a, b) => (a.t - b.t) || (a.entry === b.entry ? a.i - b.i : (a.entry.kind === 'main' ? -1 : 1)))
     for (let i = 0; i < live.length;) {
       let j = i
       while (j < live.length && live[j].entry === live[i].entry) j++
@@ -808,29 +939,70 @@ export class TranscriptWatcher {
     this.quiet(now)
   }
 
+  sessionFor(entry) {
+    return this.session(entry.sessionId, entry.enc, entry.kind === 'main' ? entry.path : join(dirname(dirname(dirname(entry.path))), `${entry.sessionId}.jsonl`))
+  }
+
+  /**
+   * Start-up on a file written in the last activeWindowMinutes: which of its
+   * records to replay. A main file replays from its last real prompt (what
+   * came before is learnt silently: title, model, cwd); a worker's file only
+   * from that prompt on. A file whose newest record is older than the window
+   * is not live, whatever its mtime says (OneDrive and backups touch files):
+   * it is learnt silently and joins when it next grows.
+   */
+  catchUp(entry, records, now) {
+    const s = this.sessionFor(entry)
+    if (!s.cwd) { const c = records.find(r => typeof r?.cwd === 'string' && r.cwd); if (c) { s.cwd = c.cwd; s.noteCwd(c.cwd) } }
+    let lastT = -Infinity
+    for (const r of records) { const t = Date.parse(r?.timestamp); if (Number.isFinite(t) && t > lastT) lastT = t }
+    const stale = !(now - lastT <= this.config.activeWindowMs)
+    entry.wasOld = true
+    entry.learnTo = 0
+    if (entry.kind === 'main') {
+      if (stale) {
+        s.mainRecords(records, [])
+        s.pending.clear(); s.batches.clear(); s.turnOpen = false; s.started = false
+        s.catchUpFrom = Infinity
+        return []
+      }
+      let from = 0
+      for (let i = records.length - 1; i >= 0; i--) if (isPrompt(records[i])) { from = i; break }
+      s.mainRecords(records.slice(0, from), [])
+      s.pending.clear(); s.batches.clear(); s.turnOpen = false; s.started = false
+      // Workers that finished before this turn are history, not desks
+      for (const sub of s.subagents.values()) sub.done = true
+      const t = Date.parse(records[from]?.timestamp)
+      s.catchUpFrom = Number.isFinite(t) ? t : -Infinity
+      return records.slice(from)
+    }
+    if (stale || s.catchUpFrom === Infinity) return []
+    const since = s.catchUpFrom ?? now - this.config.activeWindowMs
+    // Untimed rows (api-request blobs, modes) count at the time of the row before them
+    let t = -Infinity
+    return records.filter(r => { const rt = Date.parse(r?.timestamp); if (Number.isFinite(rt)) t = rt; return t >= since })
+  }
+
   ingest(entry, records) {
-    const s = this.session(entry.sessionId, entry.enc, entry.kind === 'main' ? entry.path : join(dirname(dirname(dirname(entry.path))), `${entry.sessionId}.jsonl`))
+    const s = this.sessionFor(entry)
     // Learn the cwd before deciding whether the session is wanted
-    if (!s.cwd) { const c = records.find(r => typeof r?.cwd === 'string' && r.cwd); if (c) s.cwd = c.cwd }
-    if (!this.wanted(entry.enc, s.cwd)) return
+    if (!s.cwd) { const c = records.find(r => typeof r?.cwd === 'string' && r.cwd); if (c) { s.cwd = c.cwd; s.noteCwd(c.cwd) } }
+    if (!this.wanted(entry.enc, s.homeCwd || s.cwd)) return
     const out = []
     if (entry.kind === 'main') {
-      if (entry.catchUp) {
-        // Start-up on a live session: replay only from its last real prompt
-        let from = 0
-        for (let i = records.length - 1; i >= 0; i--) {
-          const r = records[i]
-          if (r?.type === 'user' && !r.isMeta && !r.isSidechain && typeof textOf(r.message?.content) === 'string' && textOf(r.message?.content).trim() && !(Array.isArray(r.message?.content) && r.message.content.some(b => b?.type === 'tool_result'))) { from = i; break }
+      {
+        if (entry.learnTo > 0) {
+          // An old session writing again: learn its title, model and cwd from
+          // what it wrote before the watcher looked (silently; its tail only)
+          const from = Math.max(0, entry.learnTo - CATCH_UP_MAX_BYTES)
+          const { text } = readFrom(entry.path, from, entry.learnTo - from)
+          const head = splitLines('', text).records
+          if (!s.cwd) { const c = head.find(r => typeof r?.cwd === 'string' && r.cwd); if (c) { s.cwd = c.cwd; s.noteCwd(c.cwd) } }
+          s.mainRecords(head, [])
+          s.pending.clear(); s.batches.clear(); s.turnOpen = false; s.started = false
+          for (const sub of s.subagents.values()) sub.done = true
+          entry.learnTo = 0
         }
-        const head = records.slice(0, from)
-        // Silently learn title / model / cwd from what came before
-        s.mainRecords(head, [])
-        s.pending.clear(); s.batches.clear(); s.turnOpen = false
-        s.started = false
-        s.mainRecords([...records.slice(from)], out)
-        if (!s.started) out.push(s.startPayload('resume'))
-        else if (out[0]?.hook_event_name === 'SessionStart') out[0].source = 'resume'
-      } else {
         // A session that was quiet when the watcher started (or had ended) is resuming
         if ((!s.started && entry.wasOld) || s.ended) {
           const c = records.find(r => typeof r?.cwd === 'string' && r.cwd)
@@ -857,12 +1029,21 @@ export class TranscriptWatcher {
       const files = [...this.files.values()].filter(f => f.sessionId === s.sessionId)
       const last = Math.max(...files.map(f => f.lastGrowth))
       const quietMs = now - last
-      const status = this.registry.get(s.sessionId)
-      const { allow, defaultMode } = this.settingsFor(s.cwd)
-      const out = s.quietCheck(now, quietMs, {
+      const reg = this.registry.get(s.sessionId)
+      const status = reg?.status
+      const { allow, defaultMode } = this.settingsFor(s.homeCwd || s.cwd)
+      const out = []
+      // The Claude desktop app's thread name ("Research School Run settings") is the
+      // best title there is; a derived one ("ea-development-58") is not a title
+      if (reg?.name && reg.nameSource !== 'derived' && s.registryName !== reg.name) {
+        s.registryName = reg.name
+        s.title = reg.name
+        out.push(s.startPayload('resume'))
+      }
+      out.push(...s.quietCheck(now, quietMs, {
         graceMs: this.config.permissionGraceMs, bashGraceMs: this.config.bashPermissionGraceMs, turnIdleMs: this.config.turnIdleMs,
-        allow, defaultMode, registryWaiting: status === undefined ? undefined : status === 'waiting',
-      })
+        allow, defaultMode, registryWaiting: status === undefined ? undefined : status === 'waiting', registryIdle: status === 'idle',
+      }))
       if (quietMs >= this.config.idleEndMs && this.config.idleEndMs > 0 && s.pending.size === 0 && status === undefined) {
         s.ended = true
         out.push(s.base({ hook_event_name: 'SessionEnd', reason: 'idle' }))
@@ -879,9 +1060,10 @@ export class TranscriptWatcher {
         let events = []
         try { events = await this.converter.convert(p) } catch (err) { this.log.warn?.(`[transcripts] convert: ${err.message}`) }
         // The office shows the readable label (EA Dev · School Run), not the raw basename
-        const { label } = labelFor(p.cwd ?? s.cwd, s.encodedDir, s.projects)
+        const { label } = labelFor(s.homeCwd || p.cwd || s.cwd, s.encodedDir, s.projects)
         for (const e of events) {
           if ('project' in e || e.sessionId) e.project = label
+          if (p.prompt_from_other && e.type === 'session_prompt') e.isWakeup = true
           delete e.answerable; delete e.nonce; delete e.claim
           e.via = 'transcript'
         }

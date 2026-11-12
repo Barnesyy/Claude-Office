@@ -12,6 +12,8 @@
  *   node scripts/transcript-watch.mjs --js            built-in converter even when Python is there
  *   node scripts/transcript-watch.mjs --no-progression  don't send progression facts (commits, PR merges,
  *                                                     MT5 runs, lessons) to POST /progression/facts
+ *   node scripts/transcript-watch.mjs --registry-any-pid   trust every registry file, live pid or not
+ *                                                     (replaying another machine's ~/.claude/sessions)
  *
  * Settings: the `transcripts` block of office.config.json (see README-EA.md).
  * Environment: AGENT_OFFICE_PORT, AGENT_OFFICE_HOME (token + pid file),
@@ -132,7 +134,8 @@ function onPayload(p) {
   try { onProgressionPayload(p) } catch (err) { console.error('[transcripts] progression tap:', err?.message ?? err) }
 }
 
-const watcher = new TranscriptWatcher({ config, converter, sink, fromStart: flag('--from-start'), onPayload })
+const watcher = new TranscriptWatcher({ config, converter, sink, fromStart: flag('--from-start'), onPayload,
+  ...(flag('--registry-any-pid') ? { alive: () => true } : {}) })
 
 const pidFile = join(RUNTIME_DIR, 'transcript-watch.pid')
 function cleanup() {

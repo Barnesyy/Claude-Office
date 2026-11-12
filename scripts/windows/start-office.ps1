@@ -35,7 +35,12 @@ param(
 $ErrorActionPreference = 'Stop'
 function P { [System.IO.Path]::Combine([string[]]$args) }
 $Root = (Resolve-Path (P $PSScriptRoot '..' '..')).Path
-$RuntimeDir = if ($env:AGENT_OFFICE_HOME) { $env:AGENT_OFFICE_HOME } else { Join-Path $env:USERPROFILE '.agent-office' }
+# A release folder with a `portable-home` file keeps its runtime (token, logs,
+# pids, chat db) in .agent-office next to it instead of %USERPROFILE%\.agent-office
+$Portable = Test-Path (P $Root 'portable-home')
+$RuntimeDir = if ($env:AGENT_OFFICE_HOME) { $env:AGENT_OFFICE_HOME } elseif ($Portable) { P $Root '.agent-office' } else { Join-Path $env:USERPROFILE '.agent-office' }
+# The server, the watcher and open-office.mjs all read it from here
+$env:AGENT_OFFICE_HOME = $RuntimeDir
 $LogDir = Join-Path $RuntimeDir 'logs'
 $PidFile = Join-Path $RuntimeDir 'win-office-pids.json'
 $Port = if ($env:AGENT_OFFICE_PORT) { [int]$env:AGENT_OFFICE_PORT } else { 3334 }
@@ -70,7 +75,10 @@ function Test-Health {
 
 function Get-Tracked {
   if (-not (Test-Path $PidFile)) { return @() }
-  try { return @(Get-Content -Raw -Path $PidFile | ConvertFrom-Json) } catch { return @() }
+  # Why through a variable: Windows PowerShell 5.1's ConvertFrom-Json emits a JSON
+  # array as ONE object, so @(... | ConvertFrom-Json) would be a one-item array
+  # whose .pid is every pid at once
+  try { $raw = Get-Content -Raw -Path $PidFile | ConvertFrom-Json; return $raw } catch { return @() }
 }
 
 function Test-TrackedAlive($t) {
