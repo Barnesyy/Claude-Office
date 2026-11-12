@@ -2,34 +2,24 @@
 
 ## What the MIT licence covers
 
-The code in this repository and the original pixel art (the default office,
-its furniture and effects, the default worker, boss and Claude sprites, the
-incident-mode art, and everything else that is not listed below) are released
-under the MIT licence in [LICENSE](LICENSE).
+The code in this repository and its pixel art (the default office, its
+furniture and effects, the default worker, boss and Claude sprites, the
+incident-mode art, and the Trading Floor props under
+`public/sprites/trading/props/`) are released under the MIT licence in
+[LICENSE](LICENSE).
 
-## What it does not cover
+## The Dunder Mifflin skin has been removed
 
-The Dunder Mifflin skin (`/the-office` in the chat) is fan art. It is not
-affiliated with, endorsed by, sponsored by or licensed by NBCUniversal, Universal
-Television, Deedle-Dee Productions, Reveille, or anyone else connected with
-*The Office*. The names, likenesses, catchphrases and other references to the
-show and its characters belong to their respective owners.
+Upstream (W17ant/Claude-Office) shipped a Dunder Mifflin fan-art skin that its
+NOTICE.md excluded from the MIT grant: the character sprites under
+`public/sprites/office/characters/`, the props and cats under
+`public/sprites/office/`, the `-dm` room pictures under `public/rooms/`, their
+previews under `docs/images/`, and the quoted lines from the show.
 
-The following are therefore **excluded from the MIT grant** and are not
-licensed by this repository:
+This fork (the EA Development fork) deletes all of that and replaces it with
+the original **Trading Floor** theme (`/trading-floor`), so everything in this
+repository is covered by the MIT licence. The files are still in upstream's git
+history; this fork does not redistribute them on its `ea-dev` branch.
 
-- the character sprites under `public/sprites/office/characters/` and the
-  corresponding previews under `docs/images/` (Michael Scott, Jim Halpert,
-  Pam Beesly, Dwight Schrute and the rest of the cast);
-- the character props under `public/sprites/office/props/` that depict items or
-  marks from the show, including the Dunder Mifflin logo and paper box;
-- the quoted lines from the show in `src/theme.ts`.
-
-They are included for personal, non-commercial enjoyment on your own machine.
-If you redistribute this project, build on it or publish it somewhere public,
-you are responsible for whether those assets may go with it; the easiest
-course is to leave the skin out.
-
-If you hold rights in any of this material and would like it changed or
-removed, open an issue or contact the repository owner and it will be taken
-down.
+*The Office* and Dunder Mifflin are trademarks of their respective owners. This
+project is not affiliated with, endorsed by or sponsored by them.

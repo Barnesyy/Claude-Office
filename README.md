@@ -7,7 +7,7 @@ A pixel art virtual office that visualizes your AI agents working in real-time. 
 **What's new**
 - **Four more rooms** — a corridor, a meeting room, a server room and a lunch room. Click a door in the picture (or the floor plan in the corner) and the stage goes there; your boss walks over through the corridor
 - **The office follows the calendar** — spring, summer, autumn and winter all year round, with Christmas, Halloween, Easter and Valentine's Day on top: decorated rooms, desks and plants in both themes
-- **Halloween costumes** — Claude is a vampire and the boss a wizard; in Dunder Mifflin mode Michael, Dwight, Jim and Pam dress up and everyone else wears a mask or a witch hat
+- **Halloween costumes** — Claude is a vampire and the boss a wizard; everyone else wears a mask or a witch hat
 - **The boss shouts the prompt** from where he stands instead of walking it over; the Claude it's for gets a "!"
 - **Prompts from the chat** — type `@agent-office fix the failing test` in the office chat and that session picks it up when its turn ends
 - **A quieter soundtrack** — a soft ambient office instead of bleeps, with gentle cues for a prompt sent, a reply in and Claude needing you (turn the ambience off in Settings)
@@ -19,9 +19,6 @@ A pixel art virtual office that visualizes your AI agents working in real-time. 
 
 ### Every season
 ![The office at Christmas, Halloween, Easter, Valentine's Day, and in spring, summer, autumn and winter](docs/images/seasons.png)
-
-### Halloween in Dunder Mifflin mode
-![The Scranton office decorated for Halloween, with masks and a witch hat on the staff](docs/images/halloween-dunder-mifflin.png)
 
 ## Update — 1.1: the level-up
 
@@ -56,76 +53,21 @@ A pixel art virtual office that visualizes your AI agents working in real-time. 
 ### Payroll, electricity and memory
 ![Office meters: cost, tokens per minute and context fill per session, with the 5h rate-limit pill](docs/images/meters.png)
 
-## Update — Dunder Mifflin mode
+## Trading Floor mode (EA fork)
 
-Type `/the-office` in the Slack chat panel to flip the whole office into a Scranton-branch tribute. The room, the cast, and the chatter all swap over — Michael Scott runs the place, Jim is your assistant, and Dwight guards the beet cellar. (Fan art — see [NOTICE.md](NOTICE.md).)
+> This fork replaces upstream's Dunder Mifflin fan-art skin (which upstream's NOTICE.md excludes from the MIT licence) with an original **Trading Floor** theme. See [README-EA.md](README-EA.md) for the fork's other changes.
 
-### Pretzel day, every day
-<p>
-  <img src="docs/images/dunder-mifflin-day.png" alt="Dunder Mifflin — Day" width="48%">
-  <img src="docs/images/dunder-mifflin-night.png" alt="Dunder Mifflin — Night" width="48%">
-</p>
+Type `/trading-floor` in the chat panel (or pick **Trading Floor** in Settings, or load with `?theme=office`) to flip the office into a trading desk. The room and the sprites stay as upstream's own MIT art; the names, chatter, events and desk props change:
 
-**What changes when you toggle it on**
-- 27 cast members (Michael, Jim, Pam, Dwight, Kevin, Angela, Stanley, Creed, David Wallace, Bob Vance — the whole office) dealt to agent roles
-- Role chatter swaps to in-character lines (`"Bears. Beets. Battlestar Galactica."`, `"selling paper"`, `"Schrute bucks awarded"`)
-- Michael occasionally lands his signature `"That's what she said 😏"` when replying to finished work
-- Character prop overlays — Michael rotates World's Best Boss mug / Dundie / Golden Ticket / Prison Mike bandana / "NO GOD PLEASE NO", Dwight gets the CPR dummy mask or a Schrute Buck, Jim keeps his jello stapler, Stanley gets a pretzel, Jan gets a Serenity by Jan candle, Oscar / Pam / Toby share the Finer Things Club
-- Angela gets a follower cat *and* a head-cat (randomized from 12 cat sprites)
-- Kevin's chili, pretzel day, and Finer Things Club references sprinkled through the break-room chatter
-
-### The cast
-<p align="center">
-  <img src="docs/images/michael-scott.png" alt="Michael Scott" height="140">
-  <img src="docs/images/jim-halpert.png" alt="Jim Halpert" height="140">
-  <img src="docs/images/pam-beesly.png" alt="Pam Beesly" height="140">
-  <img src="docs/images/dwight-schrute.png" alt="Dwight Schrute" height="140">
-  <img src="docs/images/angela-martin.png" alt="Angela Martin" height="140">
-  <img src="docs/images/kevin-malone.png" alt="Kevin Malone" height="140">
-  <img src="docs/images/stanley-hudson.png" alt="Stanley Hudson" height="140">
-  <img src="docs/images/andy-bernard.png" alt="Andy Bernard" height="140">
-  <img src="docs/images/kelly-kapoor.png" alt="Kelly Kapoor" height="140">
-  <img src="docs/images/ryan-howard.png" alt="Ryan Howard" height="140">
-  <img src="docs/images/creed-bratton.png" alt="Creed Bratton" height="140">
-  <img src="docs/images/robert-california.png" alt="Robert California" height="140">
-  <img src="docs/images/david-wallace.png" alt="David Wallace" height="140">
-  <img src="docs/images/bob-vance.png" alt="Bob Vance, Vance Refrigeration" height="140">
-</p>
-
-### Easter-egg props
-Each cast member gets a signature prop floating above their desk in place of the usual coffee/energy-drink bubble.
+- 22 trading personas (Quinn the quant, Rory on risk, Bea on backtests, Otto the optimiser, Mo on Monte Carlo and more) are dealt to agent roles. The boss is the Desk Head and Claude is the Analyst.
+- Chatter and random events are about markets: London open, an NFP spike, an optimiser run, a new equity high, a stop hunt, a frozen MT5 terminal, and the monthly review.
+- Each persona gets a desk prop in place of the coffee or energy-drink bubble:
 
 <p align="center">
-  <img src="docs/images/prop-worlds-best-boss.png" alt="World's Best Boss mug (Michael)" height="70">
-  &nbsp;&nbsp;
-  <img src="docs/images/prop-dundie.png" alt="Dundie Award (Michael)" height="70">
-  &nbsp;&nbsp;
-  <img src="docs/images/prop-golden-ticket.png" alt="Golden Ticket (Michael)" height="70">
-  &nbsp;&nbsp;
-  <img src="docs/images/prop-prison-mike.png" alt="Prison Mike bandana (Michael)" height="70">
-  &nbsp;&nbsp;
-  <img src="docs/images/prop-no-god.png" alt="NO GOD PLEASE NO (Michael)" height="70">
-  &nbsp;&nbsp;
-  <img src="docs/images/prop-cpr-mask.png" alt="CPR Dummy Mask (Dwight)" height="70">
-  &nbsp;&nbsp;
-  <img src="docs/images/prop-schrute-buck.png" alt="Schrute Buck (Dwight)" height="70">
-  &nbsp;&nbsp;
-  <img src="docs/images/prop-jello-stapler.png" alt="Jello Stapler (Jim)" height="70">
-  &nbsp;&nbsp;
-  <img src="docs/images/prop-pretzel.png" alt="Pretzel Day (Stanley)" height="70">
-  &nbsp;&nbsp;
-  <img src="docs/images/prop-serenity-candle.png" alt="Serenity by Jan (Jan)" height="70">
-  &nbsp;&nbsp;
-  <img src="docs/images/prop-finer-things.png" alt="Finer Things Club (Oscar / Pam / Toby)" height="70">
-  &nbsp;&nbsp;
-  <img src="docs/images/prop-paper-box.png" alt="Dunder Mifflin Paper Box" height="70">
-  &nbsp;&nbsp;
-  <img src="docs/images/prop-dunder-logo.png" alt="Dunder Mifflin Logo" height="70">
-  &nbsp;&nbsp;
-  <img src="docs/images/prop-angela-cat.png" alt="Angela's cat" height="70">
+  <img src="docs/images/trading-props.png" alt="Trading Floor props: backtest clipboard, bull trophy, candlestick mug, equity-curve frame, lot calculator, stop-loss sign, ticker tape and a trader bear" width="90%">
 </p>
 
-Toggle it off any time with `/the-office` again — state persists in `localStorage`.
+Toggle it off any time with `/trading-floor` again. The choice is kept in `localStorage`.
 
 ---
 
@@ -296,7 +238,7 @@ For the Christmas look, do the same with `--festive` on both commands once your 
 | `/incident` | Declare an incident by hand |
 | `/all-clear` | End the incident and post the postmortem |
 | `/help` | Show available commands |
-| `/the-office` | Toggle Dunder Mifflin mode |
+| `/trading-floor` | Toggle the Trading Floor theme |
 
 To wipe the chat history, run `python3 scripts/chat-post.py /clear` from the checkout.
 
@@ -401,4 +343,4 @@ Issues and pull requests welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-MIT — the Dunder Mifflin fan art is excluded, see [NOTICE.md](NOTICE.md).
+MIT. This fork removed upstream's Dunder Mifflin fan art (the one part upstream excluded from MIT), see [NOTICE.md](NOTICE.md).
