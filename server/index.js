@@ -62,8 +62,11 @@ const NOTIFY_SCRIPT = process.env.AGENT_OFFICE_NOTIFY_SCRIPT || join(__dirname, 
 
 /** A desktop notification through scripts/notify.sh (macOS and Linux; a no-op elsewhere). Fire and forget. */
 function sendNotification(title, msg) {
+  // Why: notify.sh does nothing on Windows, and a bash.exe (Git Bash) started
+  // there would only risk a console window on Jake's PC
+  if (process.platform === 'win32') return
   try {
-    const child = execFile('bash', [NOTIFY_SCRIPT, title, msg], { timeout: 3000 })
+    const child = execFile('bash', [NOTIFY_SCRIPT, title, msg], { timeout: 3000, windowsHide: true })
     child.unref()
   } catch {}
 }
