@@ -166,16 +166,50 @@ and Quarter.
 Settings → Progression turns it on or off and resets it (UI token).
 Progression is loopback only: a LAN phone shows none of it.
 
+## EA scenes
+
+Read from the watcher only (the hookless `onPayload` tap → `POST /ea/payload`, token required). Hooks mode doesn't feed them.
+They are display only: no scene runs or changes anything.
+
+- **MT5 backtest station** (rack + crash cart, left wall).
+  - Lights while a Bash/PowerShell call runs `terminal64.exe /config:…` (tester) or `metaeditor64.exe /compile:…`.
+  - When the tester ends, the card shows net profit, max drawdown and trades **read from the tester report** (`Report=` in the ini, then the reports folder).
+  - No readable report gives "report not found" with the reason. It never shows a number it did not read.
+  - Compile errors turn the rack red, with error and warning counts from the `/log` file.
+- **Equity wall.** The whiteboard cycles **To-do / Kanban / Balance curve / EA ticker** (12 s each, only modes with content).
+  - Click a tab to hold a mode; click again to release it. Hover the board for a big readable copy.
+  - The curve is the balance column of the latest report (from a run the office saw, or the newest in `ea.reportsDir`).
+  - With no report it shows an empty state.
+- **Command Centre.** The `CMD` button in the title bar (or `?centre`) shows every session in Needs you / Working / Done / Ended. Esc closes it.
+- **Desk screens.** A worker touching `.mq5` gets MetaEditor + a DAX chart. A `.set` or tester ini gets the Strategy Tester + DAX.
+  These are pictures, not data. Preview them with `?screens=dax|mql|tester`.
+- **Tick-data cabinets.** Calls that fetch or name tick data for years (e.g. `--from 2019 --to 2023`) put up to 3 filing cabinets by the window, plated by year (runs like `2019–20` when there are more).
+- **Risk badge.** An `.mq5` edit whose changed lines touch lot sizing, risk % or stop-loss code floats an amber `LOTS·RISK·SL` flag over that worker for 30 min.
+  Info only; no code is sent to the page.
+
 Config (`office.config.json`, all optional):
 
 ```json
-"progression": {
-  "enabled": true,
-  "equityReports": ["C:\\Users\\Barnesy\\Documents\\MT5 reports"],
-  "demoAccounts": ["5012345"],
-  "equityPollMinutes": 10
+{
+  "progression": {
+    "enabled": true,
+    "equityReports": ["C:\\Users\\Barnesy\\Documents\\MT5 reports"],
+    "demoAccounts": ["5012345"],
+    "equityPollMinutes": 10
+  },
+  "ea": {
+    "reportsDir": "C:\\Users\\Barnesy\\AppData\\Roaming\\MetaQuotes\\Terminal\\<id>\\reports",
+    "terminalDataDirs": [],
+    "reportWaitMinutes": 20,
+    "screenMinutes": 10,
+    "riskMinutes": 30,
+    "cabinetMinutes": 60,
+    "rescanSeconds": 30
+  }
 }
 ```
+
+Progression:
 
 - `enabled: false` turns it off at server start.
 - `equityReports` takes files or folders of MT5 History → Report HTML exports (UTF-16 is fine).
@@ -184,6 +218,23 @@ Config (`office.config.json`, all optional):
 - Watcher: `node scripts/transcript-watch.mjs --no-progression` sends no facts.
 - Replay demo: `node scripts/transcript-watch.mjs --dir tests/fixtures/progression-transcripts --once --from-start --all-projects`.
 - Sprites: `python3 scripts/generate-progression-sprites.py`. Credits are in `docs/progression-credits.md`.
+
+EA scenes:
+
+- `AGENT_OFFICE_EA_REPORTS_DIR` overrides `reportsDir`.
+- Reports, inis and logs may be UTF-16 (MT5's default).
+- EA state, including file paths, is not sent to read-only (LAN) viewers. `GET /ea/state` includes paths only with the token.
+
+Demo (fixture numbers, **not real results**; expert `SchoolRun_FIXTURE`):
+
+```bash
+AGENT_OFFICE_HOME=/tmp/ao AGENT_OFFICE_PORT=3434 node server/index.js
+AGENT_OFFICE_HOME=/tmp/ao AGENT_OFFICE_PORT=3434 node scripts/transcript-watch.mjs --dir /tmp/ao/proj --all-projects
+node scripts/ea-demo.mjs --to /tmp/ao/proj [--with-fixtures] [--no-report] [--hold-tester 30]
+```
+
+- Fixtures: `tests/fixtures/ea/` (regenerate with `node tests/fixtures/ea/make-ea-fixtures.mjs`).
+- Tests: `tests/ea-scenes.test.ts`, `tests/ea-office.test.ts`, `tests/ea-scenes-ui.test.ts`.
 
 ## Hooking in a progression layer
 

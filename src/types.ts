@@ -299,6 +299,8 @@ export interface OfficeEvent {
     | 'health' | 'connection'
     // A session's task list changed (server/tasks.js), or the snapshot's boards (src/taskBoard.ts)
     | 'task_board'
+    // The EA scenes' whole state (server/ea-scenes.js; src/eaScenes.ts)
+    | 'ea_state'
   agent?: Partial<Agent>
   agentId?: string
   status?: string
@@ -410,6 +412,8 @@ export interface OfficeEvent {
   boards?: TaskBoardInfo[]
   // task_board: which board it is when it is an agent team's (`team:<name>`); a session's own board has none
   boardId?: string
+  // ea_state: the EA scenes' state (backtest station, balance curve, tick cabinets, screens, risk flags)
+  ea?: unknown
   // connection: the WebSocket opened or closed — dispatched by useAgentSocket, not sent by the server
   socket?: 'open' | 'closed'
 }

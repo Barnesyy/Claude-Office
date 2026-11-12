@@ -49,6 +49,8 @@ import {
 } from './lan.js'
 import { loadOrCreateLanCert } from './lan-cert.js'
 import { notifyTaps, addEventTap } from './event-taps.js'
+import { mountEaScenes } from './ea-office.js'
+import { eaReadOnly } from './ea-scenes.js'
 import { createRecap, recapLine, isRecapDate, localDate } from './recap.js'
 import { mountProgression } from './progression-routes.js'
 import { createPromptQueue, parseMention, resolveMention, mentionName, MARKER_DIR_NAME, MAX_PROMPT_LEN, MAX_QUEUED_PER_SESSION } from './prompt-queue.js'
@@ -1837,7 +1839,8 @@ app.use((req, res, next) => {
   unauthorized(res, { error: 'Unauthorized: this office answers its proxy name only with a token' })
 })
 
-app.use((req, res, next) => (req.path === '/event' ? eventJsonBody : jsonBody)(req, res, next))
+// Why /ea/payload too: the watcher batches EA tool calls with their (cut) output
+app.use((req, res, next) => (req.path === '/event' || req.path === '/ea/payload' ? eventJsonBody : jsonBody)(req, res, next))
 
 // CORS for local dev — only allow known localhost origins
 app.use((req, res, next) => {
@@ -3899,6 +3902,20 @@ function sweepStale(now = Date.now()) {
 setInterval(() => sweepStale(), 5 * 60_000).unref()
 
 // ---------------------------------------------------------------------------
+// EA scenes (server/ea-scenes.js): the backtest station, equity wall, tick
+// archive, DAX screens and risk badges, from the watcher's tool calls
+// ---------------------------------------------------------------------------
+
+const ea = mountEaScenes({
+  app,
+  requireToken,
+  isTrusted: req => tokenMatches(bearerToken(req)),
+  broadcast: payload => broadcast(payload),
+  resolve: (sessionId, agentId) => (agentId ? lookupAgentId(agentId) : sessionId ? mainActivityId(sessionId) : null),
+  officeConfig: (() => { try { return loadOfficeConfig(CONFIG_DIR, { warn() {}, log() {}, error() {} }).config ?? {} } catch { return {} } })(),
+})
+
+// ---------------------------------------------------------------------------
 // Static UI — registered after every API route so /health, /chat, ... win
 // ---------------------------------------------------------------------------
 
@@ -4045,6 +4062,8 @@ function redactForReadOnly(payload) {
       return payload.permission ? { ...payload, permission: redactPermission(payload.permission) } : payload
     case 'signal':
       return readOnlySignal(payload)
+    case 'ea_state':
+      return { ...payload, ea: eaReadOnly(payload.ea) }
     default:
       return withoutMainText(payload)
   }
@@ -4135,6 +4154,8 @@ function buildSnapshot(trusted) {
     // Each session's task board, the most recently changed first: subjects and
     // states only, never a description, so read-only connections get it as is
     taskBoards: tasks.boards(),
+    // The EA scenes (server/ea-office.js), report paths only for a trusted connection
+    ea: ea.snapshot(trusted),
     timestamp: Date.now(),
   }
 }
@@ -5045,4 +5066,5 @@ export {
   sweepStale,
   broadcast,
   addEventTap,
+  ea,
 }
