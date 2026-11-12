@@ -119,6 +119,72 @@ npx vite build
 - The fork's own tests are `tests/transcript-source.test.ts` (fixtures, labels, permission inference, the Python bridge) and `tests/transcript-e2e.test.ts` (watcher → `/event` → WebSocket, event taps, registry focus).
 - A full run deletes `build/icon.png` (an upstream test quirk). Restore it with `git checkout build/icon.png`.
 
+## Progression (XP, trophies, unlocks)
+
+The office levels up from real work only. Each source:
+
+- **Turns and workers:** from the event tap (`session_turn_end`, `agent_completed`).
+  A worker whose result is `failed: …`, `stopped`, `session ended` or `went quiet` earns nothing.
+- **Tests, builds, pushes, deploys:** the Python tracker's `signal`s.
+- **Commits, PR merges, MT5 runs, EA compiles, lessons:** the transcript watcher reads these from tool calls
+  (`server/progression-facts.js`) and posts them to `POST /progression/facts` (office token).
+  - **MT5 tester runs:** a foreground `terminal64 /config:<ini>` call that finished.
+  - **Walk-forward:** `ForwardMode>0` in that ini, read on this PC. If the ini can't be read, the run counts
+    as walk-forward only when the file name says so (`wf`, `walk-forward`, `forward`).
+  - **Tester report:** counts when the ini's `Report=` file was written during the run.
+  - **Lesson:** the same command or file failed, then worked, in the same session within 2 h.
+- **Demo equity highs:** only from a real MT5 account report on a demo account (see config below).
+  No report means no number. The first reading is the baseline.
+
+Anti-farming:
+
+- XP for a kind shrinks with each repeat in a day: `base / (1 + 0.35 n)`.
+- Each kind is capped at 8× its base per day.
+- The same thing again within 90 s counts nothing.
+- Replays are deduped by id.
+- Failures earn 0 XP.
+
+The rules live in `server/progression.js` (`XP_BASE`, `TRACKS`, `MILESTONES`, `UNLOCKS`). The store is SQLite tables
+`progression_*` in `chat.db`. Broadcasts are `progression_update`, `progression_award`, `progression_reset` and
+`progression_settings`.
+
+In the room:
+
+- trophy cabinet with an XP bar and level plate
+- mailbox (flag up while there are unseen awards)
+- lessons binder
+- Shipped bin (a parcel per merged PR or deploy)
+- window-box garden (a plant per merged PR)
+- backtest bay, equity wall and money tree
+
+Locked furniture stands under a dust sheet with a padlock. On unlock, the sheet lifts with a star burst.
+The four rare unlocks show as `???` until earned.
+
+The level button in the status strip opens the panel. Its tabs are Office, Trophies, Unlocks, Lessons, Today
+and Quarter.
+
+Settings → Progression turns it on or off and resets it (UI token).
+Progression is loopback only: a LAN phone shows none of it.
+
+Config (`office.config.json`, all optional):
+
+```json
+"progression": {
+  "enabled": true,
+  "equityReports": ["C:\\Users\\Barnesy\\Documents\\MT5 reports"],
+  "demoAccounts": ["5012345"],
+  "equityPollMinutes": 10
+}
+```
+
+- `enabled: false` turns it off at server start.
+- `equityReports` takes files or folders of MT5 History → Report HTML exports (UTF-16 is fine).
+  - A reading counts when the report's Account line names a Demo server, or its login is in `demoAccounts`.
+  - Strategy Tester reports are never read as equity.
+- Watcher: `node scripts/transcript-watch.mjs --no-progression` sends no facts.
+- Replay demo: `node scripts/transcript-watch.mjs --dir tests/fixtures/progression-transcripts --once --from-start --all-projects`.
+- Sprites: `python3 scripts/generate-progression-sprites.py`. Credits are in `docs/progression-credits.md`.
+
 ## Hooking in a progression layer
 
 `server/event-taps.js` is the seam: `addEventTap(fn)` gets every payload the office broadcasts, after the server
