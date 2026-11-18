@@ -89,7 +89,7 @@ describe('Codex', () => {
     expect(new Set(events.map(e => e.sessionId))).toEqual(new Set([MAIN]))
 
     const started = events.filter(e => e.type === 'session_started')
-    expect(started[0]).toMatchObject({ sessionId: MAIN, project: 'School Run' })
+    expect(started[0]).toMatchObject({ sessionId: MAIN, project: 'School Run', model: 'gpt-5.2-codex' })
     expect(started.at(-1)).toMatchObject({ model: 'gpt-5.2-codex', title: 'Run the School Run backtest and fix the lot sizing' })
 
     expect(events.filter(e => e.type === 'session_prompt').map(e => e.text)).toEqual(['Run the School Run backtest and fix the lot sizing', 'Now run the tester'])
@@ -162,8 +162,8 @@ describe('Grok', () => {
     const { events, payloads } = await run('grok')
     expect(events.every(e => e.provider === 'grok' && e.sessionId === G)).toBe(true)
     const started = events.filter(e => e.type === 'session_started')
-    expect(started[0]).toMatchObject({ project: 'EA Development' })
-    expect(started.at(-1)).toMatchObject({ title: 'Check the spread filter', model: 'grok-4.7' })
+    expect(started).toHaveLength(1)
+    expect(started[0]).toMatchObject({ project: 'EA Development', title: 'Check the spread filter', model: 'grok-4.7' })
     expect(events.filter(e => e.type === 'session_prompt').map(e => e.text)).toEqual(['Check the spread filter', 'Now run the tester'])
     expect(payloads.filter(p => p.hook_event_name === 'PreToolUse').map(p => p.tool_name)).toEqual(['Read', 'Glob', 'Bash', 'Bash'])
     expect(payloads.find(p => p.tool_use_id === 'g3' && p.hook_event_name === 'PostToolUseFailure')).toBeTruthy()

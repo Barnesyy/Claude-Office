@@ -245,7 +245,7 @@ export class CodexAdapter {
   }
 
   row(type, at, message, extra = {}) {
-    return { type, timestamp: at, ...(this.cwd ? { cwd: this.cwd } : {}), message, ...extra }
+    return { type, timestamp: at, ...(this.cwd ? { cwd: this.cwd } : {}), ...(this.model ? { model: this.model } : {}), message, ...extra }
   }
 
   call(at, id, rawName, rawArgs) {
@@ -433,7 +433,7 @@ export class GrokAdapter {
   }
 
   row(type, at, message, extra = {}) {
-    return { type, timestamp: at, ...(this.cwd ? { cwd: this.cwd } : {}), message, ...extra }
+    return { type, timestamp: at, ...(this.cwd ? { cwd: this.cwd } : {}), ...(this.model ? { model: this.model } : {}), message, ...extra }
   }
 
   /** The title and model Grok keeps beside the stream (summary.json), when they changed. */

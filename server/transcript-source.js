@@ -331,6 +331,8 @@ export class TranscriptSession {
     if (!r || typeof r !== 'object') return out
     this.recordAt = Date.parse(r.timestamp) || undefined
     if (r.isSidechain && r.agentId) return this.subagentRecord(r.agentId, r, out)
+    // A provider's row names the model beside the message (Claude's own rows carry it on the reply)
+    if (!this.model && typeof r.model === 'string' && r.model) this.model = r.model
     if (!this.started && (r.type === 'user' || r.type === 'assistant')) {
       if (typeof r.cwd === 'string' && r.cwd) this.cwd = r.cwd
       out.push(this.startPayload('startup'))
