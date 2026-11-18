@@ -62,7 +62,7 @@ import RoomBackdrop from './components/RoomBackdrop'
 import RoomSwitcher from './components/RoomSwitcher'
 import DoorLinks from './components/DoorLinks'
 import { ROOMS, OFFICE_ROOM, findSpot, type RoomId } from './rooms'
-import { openRoomSet, previewAllRooms } from './roomAccess'
+import { openRoomSet, previewAllRooms, sameRooms } from './roomAccess'
 import { roomOf, TRANSFER_MAX_MS } from './roomTransfer'
 import { switcherModel, viewableRoom } from './roomSwitcher'
 import { startRoomsDemo } from './roomsDemo'
@@ -115,11 +115,10 @@ if (params.get('theme') === 'office') { _setTheme('office') }
 if (params.get('variant') === 'incident') { pinIncidentFromUrl() }
 // The rooms in use (src/roomAccess.ts): the office, plus every room whose art
 // is drawn, or all of them under ?rooms=all (a preview with placeholders).
-// Why decided once at load: who walks where must not change under a running office.
-const OPEN_ROOMS = openRoomSet(undefined, previewAllRooms(window.location.search))
-// Why undefined with only the office open: the reducer then takes none of its
-// room branches and the office behaves exactly as it did as one room
-const ROOMS_IN_USE = OPEN_ROOMS.size > 1 ? OPEN_ROOMS : undefined
+// Until the server says which side rooms the firm has bought (the snapshot's
+// `rooms`, see applyRooms), and always in ?sim / ?video, this is the set.
+const PREVIEW_ALL_ROOMS = previewAllRooms(window.location.search)
+const INITIAL_ROOMS = openRoomSet(undefined, PREVIEW_ALL_ROOMS)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -768,7 +767,30 @@ const App: React.FC = () => {
 
   // Everything impure the reducer needs; ?sim / ?video have no server, so the
   // office itself plays the server's part (lifecycle chat lines, all-move events)
-  const officeEnv = useCallback((): OfficeEnv => ({ now: Date.now(), live: !isSimMode, computePath, random: Math.random, openRooms: ROOMS_IN_USE }), [])
+  // The rooms in use. Why a ref beside the state: the reducer's environment is
+  // read inside stable callbacks, and the new set has to be in force before
+  // the snapshot that brought it is reduced.
+  const [OPEN_ROOMS, setOpenRooms] = useState<ReadonlySet<RoomId>>(INITIAL_ROOMS)
+  const openRoomsRef = useRef<ReadonlySet<RoomId>>(INITIAL_ROOMS)
+  const roomsToldRef = useRef(false)
+  // Why undefined with only the office open: the reducer then takes none of its
+  // room branches and the office behaves exactly as it did as one room
+  const ROOMS_IN_USE = OPEN_ROOMS.size > 1 ? OPEN_ROOMS : undefined
+  // The server's word on which side rooms are bought (server/progression.js rooms()).
+  const applyRooms = useCallback((bought: unknown) => {
+    const next = openRoomSet(undefined, PREVIEW_ALL_ROOMS, Array.isArray(bought) ? bought as string[] : null)
+    const prev = openRoomsRef.current
+    const first = !roomsToldRef.current
+    roomsToldRef.current = true
+    if (sameRooms(prev, next)) return
+    // Why reload when a room closes under a running office (a reset, or
+    // progression switched on): somebody may be standing in it. A room that
+    // opens needs nothing: people start using it from the next event.
+    if (!first && [...prev].some(id => !next.has(id))) { window.location.reload(); return }
+    openRoomsRef.current = next
+    setOpenRooms(next)
+  }, [])
+  const officeEnv = useCallback((): OfficeEnv => ({ now: Date.now(), live: !isSimMode, computePath, random: Math.random, openRooms: openRoomsRef.current.size > 1 ? openRoomsRef.current : undefined }), [])
 
   // Permission dialogs waiting on the office (src/permissions.ts): their own
   // state beside the office reducer — a card is not a character. The
@@ -783,7 +805,8 @@ const App: React.FC = () => {
     if (isPermissionEvent(action)) { dispatchPermissions(action); return }
     // Another page tapped a piece of furniture: the same errand plays here
     if (action.type === 'office_interaction') { handleFurnitureClickRef.current(action.item, true); return }
-    if (action.type === 'snapshot') { setUiToken(action.uiToken); dispatchPermissions(action) }
+    if ((action.type as string) === 'office_rooms') { applyRooms((action as { rooms?: unknown }).rooms); return }
+    if (action.type === 'snapshot') { applyRooms((action as { rooms?: unknown }).rooms); setUiToken(action.uiToken); dispatchPermissions(action) }
     // Incident mode: count failed tool calls, hear what the Bash commands
     // meant (a failed deploy opens it, a green run closes it), and apply
     // /incident + /all-clear relayed by the server. A signal then goes on to
@@ -871,7 +894,7 @@ const App: React.FC = () => {
   // him back to his desk
   const pickRoom = useCallback((room: RoomId) => {
     setPickedRoom(room)
-    handleEvent({ type: 'boss_go', room: viewableRoom(room, OPEN_ROOMS) })
+    handleEvent({ type: 'boss_go', room: viewableRoom(room, openRoomsRef.current) })
   }, [handleEvent])
 
   // ?sim: MCP calls and a three-worker session, so the server room

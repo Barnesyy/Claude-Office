@@ -45,14 +45,31 @@ export function previewAllRooms(search: string): boolean {
  * the corridor stays closed.
  * @param drawn the rooms that have art
  * @param previewAll open everything regardless (`?rooms=all`)
+ * @param bought the side rooms the firm has bought (the server's `rooms`); null or
+ *   undefined means progression is off or unknown, and every drawn room is open
  * @returns the open rooms, the office among them
  */
-export function openRoomSet(drawn: readonly RoomId[] = DRAWN_ROOMS, previewAll = false): ReadonlySet<RoomId> {
+export function openRoomSet(drawn: readonly RoomId[] = DRAWN_ROOMS, previewAll = false, bought?: readonly string[] | null): ReadonlySet<RoomId> {
   if (previewAll) return new Set(ROOM_IDS)
   const open = new Set<RoomId>([OFFICE_ROOM])
   if (!drawn.includes(HUB_ROOM)) return open
-  for (const id of ROOM_IDS) if (drawn.includes(id)) open.add(id)
+  for (const id of ROOM_IDS) {
+    if (!drawn.includes(id) || id === HUB_ROOM) continue
+    if (!bought || bought.includes(id)) open.add(id)
+  }
+  // Why no corridor for a firm that has bought no side room: a hallway to nowhere is not office space
+  if (!bought || open.size > 1) open.add(HUB_ROOM)
   return open
+}
+
+/**
+ * Whether two open-room sets hold the same rooms.
+ * @param a one set
+ * @param b the other
+ * @returns true when they match
+ */
+export function sameRooms(a: ReadonlySet<RoomId>, b: ReadonlySet<RoomId>): boolean {
+  return a.size === b.size && [...a].every(id => b.has(id))
 }
 
 /**

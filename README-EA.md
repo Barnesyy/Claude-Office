@@ -265,6 +265,14 @@ link (`npm run open`); a plain `127.0.0.1` tab and a phone are read-only.
 | Equity plate | $2,000 | `DEMO HIGH` plate under the wall dashboard |
 | Window garden | $2,500 | a plant per merged PR |
 | Money tree | $5,000 | it looks like it might grow money |
+| Lunch room | $3,000 | more office space: breaks and long idles happen there |
+| Meeting room | $4,500 | more office space: a session and its workers gather there |
+| Server room | $6,000 | more office space: MCP server workers stand at the racks |
+
+The firm starts with the main office only. A side room does not exist until it is bought: nobody is sent
+there and the floor plan does not list it. The corridor comes with the first room. The server tells every
+page which rooms exist (`rooms` in the snapshot, `office_rooms` after a purchase). With progression switched
+off, every room is open as before.
 
 The four rare finds are earned, not bought, and show as `???` until then.
 The Shop tab also lists the last money in and out (table `progression_ledger`).

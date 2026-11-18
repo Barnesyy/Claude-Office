@@ -185,6 +185,10 @@ export const UNLOCKS = [
   { id: 'equity-wall', title: 'Equity plate', detail: 'The demo equity high, in brass under the wall dashboard', category: 'Equipment', price: 2000 },
   { id: 'rooftop-garden', title: 'Window garden', detail: 'A plant for every merged PR', category: 'Decor', price: 2500 },
   { id: 'money-tree', title: 'Money tree', detail: 'It does not grow money. It looks like it might', category: 'Decor', price: 5000 },
+  // More office space: each is a room (`room`) that does not exist until it is bought
+  { id: 'room-lunch', title: 'Lunch room', detail: 'A kitchen and cafe tables for breaks and long idles', category: 'Office space', price: 3000, room: 'lunch-room' },
+  { id: 'room-meeting', title: 'Meeting room', detail: 'Where a session and its workers gather', category: 'Office space', price: 4500, room: 'meeting-room' },
+  { id: 'room-server', title: 'Server room', detail: 'Racks for the MCP servers and their workers', category: 'Office space', price: 6000, room: 'server-room' },
   // Rare
   { id: 'golden-bull', title: 'Golden bull', detail: '10 walk-forward runs', hint: 'Rare', rare: true, test: c => c.counts.walk_forward >= 10 },
   { id: 'clover', title: 'Four-leaf clover', detail: 'Fixed something that had failed 5 times or more', hint: 'Rare', rare: true, test: c => c.lessonMaxFails >= 5 },
@@ -662,12 +666,24 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
       a = award({ id: `unlock:${u.id}`, type: 'unlock', title: u.title, detail: u.detail })
     })()
     broadcast({ type: 'progression_update', ...totals(), timestamp: now() })
+    if (a && u.room) announceRooms()
     return a ? { ok: true, cash: state('cash', 0) } : { ok: false, error: 'already bought' }
   }
 
   // -------------------------------------------------------------------------
   // Reads
   // -------------------------------------------------------------------------
+
+  /**
+   * The side rooms the firm has bought. The corridor comes with the first one.
+   * @returns {string[] | null} room ids, or null when progression is off (every room is open)
+   */
+  function rooms() {
+    if (!enabled()) return null
+    const owned = new Set(q.awards.all().map(a => a.id))
+    return UNLOCKS.filter(u => u.room && owned.has(`unlock:${u.id}`)).map(u => u.room)
+  }
+  function announceRooms() { broadcast({ type: 'office_rooms', rooms: rooms(), timestamp: now() }) }
 
   function snapshot() {
     const on = enabled()
@@ -755,6 +771,7 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
 
   function setEnabled(on) {
     setState('enabled', !!on)
+    announceRooms()
     broadcast({ type: 'progression_settings', enabled: !!on, timestamp: now() })
     if (on) check()
   }
@@ -768,6 +785,7 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
     })()
     lastBy.clear(); signalFails.clear()
     broadcast({ type: 'progression_reset', timestamp: now() })
+    announceRooms()
     if (keep) check()
     log.log?.('[progression] reset')
   }
@@ -775,5 +793,5 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
   // Anything earned while the module was older
   if (enabled()) check()
 
-  return { noteBroadcast, noteFact, noteEquity, noteResult, buy, snapshot, day, quarter, enabled, setEnabled, reset, check, gain }
+  return { noteBroadcast, noteFact, noteEquity, noteResult, buy, rooms, snapshot, day, quarter, enabled, setEnabled, reset, check, gain }
 }

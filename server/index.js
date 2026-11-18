@@ -4262,6 +4262,8 @@ function buildSnapshot(trusted) {
   const pending = permissions.pending()
   return {
     type: 'snapshot',
+    // The side rooms the firm has bought (null: progression is off, every room is open)
+    rooms: progression.rooms(),
     activeAgents: liveAgents(),
     sessions: Array.from(sessions.values()).map(s => sessionToJSON(s, { withText: trusted })),
     statuses: status.summary(),
@@ -4385,6 +4387,7 @@ const sessionEventRule = p => ({ ...pick(p, ['type', 'timestamp']), ...lanSessio
 const LAN_EVENT_RULES = {
   snapshot: s => ({
     type: 'snapshot',
+    rooms: Array.isArray(s.rooms) ? s.rooms.filter(r => typeof r === 'string') : null,
     activeAgents: (s.activeAgents ?? []).map(lanAgent),
     sessions: (s.sessions ?? []).map(lanSession),
     health: pick(s.health, LAN_HEALTH_FIELDS),
@@ -4396,6 +4399,7 @@ const LAN_EVENT_RULES = {
   }),
   agent_spawned: eventFields(['sessionId', 'recovered'], p => ({ agent: lanAgent(p.agent) })),
   office_interaction: eventFields(['item', 'by']),
+  office_rooms: p => ({ type: 'office_rooms', rooms: Array.isArray(p.rooms) ? p.rooms.filter(r => typeof r === 'string') : null, timestamp: p.timestamp }),
   agent_working: eventFields(['agentId', 'sessionId', 'failed']),
   agent_completed: eventFields(['agentId', 'sessionId', 'tokens', 'durationMs', 'toolUses', 'model']),
   mcp_call: eventFields(['server', 'tool', 'agentId', 'sessionId']),

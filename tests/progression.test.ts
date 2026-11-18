@@ -349,6 +349,22 @@ describe('the firm\'s money', () => {
     expect(t.sent.find(m => m.type === 'progression_update' && m.gain)?.gain).toMatchObject({ kind: 'commit', cash: CASH_BASE.commit })
   })
 
+  it('office space: a room exists once it is bought, and every room is open with progression off', () => {
+    const t = fresh()
+    expect(t.p.rooms()).toEqual([])
+    t.db.prepare("INSERT OR REPLACE INTO progression_state (key, value) VALUES ('cash', '4000')").run()
+    expect(t.p.buy('room-server')).toEqual({ ok: false, error: 'needs 2000 more' })
+    expect(t.p.buy('room-lunch')).toEqual({ ok: true, cash: 1000 })
+    expect(t.p.rooms()).toEqual(['lunch-room'])
+    expect(t.sent.at(-1)).toMatchObject({ type: 'office_rooms', rooms: ['lunch-room'] })
+    t.p.setEnabled(false)
+    expect(t.p.rooms()).toBeNull()
+    expect(t.sent.at(-2)).toMatchObject({ type: 'office_rooms', rooms: null })
+    t.p.setEnabled(true)
+    t.p.reset()
+    expect(t.p.rooms()).toEqual([])
+  })
+
   it('buying: not without the money, once only, and the piece is then in the office', () => {
     const t = fresh()
     expect(t.p.buy('mailbox')).toEqual({ ok: false, error: 'needs 400 more' })

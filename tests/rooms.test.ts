@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ROOMS, ROOM_IDS, HUB_ROOM, OFFICE_ROOM, findRoomPath, getConnectedRooms, doorTo, getFreeSpot, findSpot, type RoomId,
 } from '../src/rooms'
-import { DRAWN_ROOMS, openRoomSet, previewAllRooms, roomArt, roomArtFiles } from '../src/roomAccess'
+import { DRAWN_ROOMS, openRoomSet, previewAllRooms, roomArt, roomArtFiles, sameRooms } from '../src/roomAccess'
 import {
   wantedRoom, isTeam, dwellMs, MEETING_MIN_WORKERS, MEETING_STAY_WORKERS, LUNCH_IDLE_MS, DWELL_MS,
   MEETING_ROOM, SERVER_ROOM, LUNCH_ROOM, type RoomFacts,
@@ -198,6 +198,20 @@ describe('a room is closed until its art is drawn (src/roomAccess.ts)', () => {
   it('the corridor opens the rooms that are drawn, and only those', () => {
     expect([...openRoomSet([OFFICE_ROOM, HUB_ROOM])].sort()).toEqual(['corridor', 'main-office'])
     expect([...openRoomSet([OFFICE_ROOM, HUB_ROOM, 'server-room'])].sort()).toEqual(['corridor', 'main-office', 'server-room'])
+  })
+
+  it('a firm only has the side rooms it bought, and no corridor until the first one', () => {
+    const drawn = [OFFICE_ROOM, HUB_ROOM, 'meeting-room', 'server-room', 'lunch-room'] as const
+    expect([...openRoomSet(drawn, false, [])]).toEqual([OFFICE_ROOM])
+    expect([...openRoomSet(drawn, false, ['lunch-room'])].sort()).toEqual(['corridor', 'lunch-room', 'main-office'])
+    // Progression off (null) or not heard from yet: every drawn room, as before
+    expect(openRoomSet(drawn, false, null).size).toBe(5)
+    expect(openRoomSet(drawn).size).toBe(5)
+    // A bought room whose art is missing stays closed; the preview ignores purchases
+    expect([...openRoomSet([OFFICE_ROOM, HUB_ROOM], false, ['lunch-room'])]).toEqual([OFFICE_ROOM])
+    expect(openRoomSet(drawn, true, []).size).toBe(ROOM_IDS.length)
+    expect(sameRooms(openRoomSet(drawn, false, ['lunch-room']), openRoomSet(drawn, false, ['lunch-room']))).toBe(true)
+    expect(sameRooms(openRoomSet(drawn, false, []), openRoomSet(drawn, false, ['lunch-room']))).toBe(false)
   })
 
   it('?rooms=all opens every room whatever is drawn; any other value does not', () => {
