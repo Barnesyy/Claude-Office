@@ -113,7 +113,7 @@ export interface ProgressionState {
   snapshot: ProgressionSnapshot | null
   /** Awards waiting to be shown as a toast (oldest first) */
   toasts: Award[]
-  /** An unlock playing its reveal: the dust sheet lifts, stars burst */
+  /** A piece arriving: it settles onto the floor, stars burst */
   reveals: { id: string; at: number }[]
   /** The last XP gain, for the +XP float over the cabinet */
   lastGain: { kind: string; xp: number; cash?: number; label?: string; at: number } | null
@@ -375,14 +375,8 @@ export const PLANT_SPRITES = [
   '/sprites/progression/plant-3.png',
 ] as const
 
-export const SHEET_SPRITES = {
-  small: '/sprites/progression/dust-sheet-small.png',
-  medium: '/sprites/progression/dust-sheet-medium.png',
-  tall: '/sprites/progression/dust-sheet-tall.png',
-  long: '/sprites/progression/dust-sheet-long.png',
-} as const
-
-type ArtMeta = { w: number; h: number; shelves?: { x: number; y: number }[][]; slots?: { x: number; y: number }[]; pile?: { x: number; y: number } }
+type Pt = { x: number; y: number }
+type ArtMeta = { w: number; h: number; shelves?: Pt[][]; slots?: Pt[]; pile?: Pt; tag?: Pt; plate?: Pt; top?: Pt; xp?: { from: Pt; to: Pt } }
 const ART = (art as { sprites: Record<string, ArtMeta> }).sprites
 
 /** A sprite's art size (1 art pixel = 1 CSS pixel, the upstream furniture's density). */
@@ -394,6 +388,12 @@ export function artSize(path: string): { w: number; h: number } {
 export const CABINET_SHELVES = ART['trophy-cabinet.png']?.shelves ?? []
 export const PLANTER_SLOTS = ART['planter.png']?.slots ?? []
 export const BIN_PILE = ART['shipped-bin.png']?.pile ?? { x: 50, y: 50 }
+/** Where the bin's stencilled count sits on its front, % of the sprite */
+export const BIN_TAG = ART['shipped-bin.png']?.tag ?? { x: 30, y: 60 }
+/** The cabinet's brass plate, the groove its XP bar runs in, and the middle of its top, % of the sprite */
+export const CABINET_PLATE = ART['trophy-cabinet.png']?.plate ?? { x: 35, y: 80 }
+export const CABINET_XP = ART['trophy-cabinet.png']?.xp ?? { from: { x: 8, y: 13 }, to: { x: 63, y: 31 } }
+export const CABINET_TOP = ART['trophy-cabinet.png']?.top ?? { x: 46, y: 16 }
 
 /**
  * The trophies on the cabinet: each track's best earned tier, best first

@@ -9,7 +9,7 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import {
   applyProgressionEvent, cabinetTrophies, gardenPlants, parcelsShown, xpProgress, hasNews, isUnlocked, isRevealing, formatDuration,
-  kindRows, quarterOf, previousQuarter, quarterMonths, artSize, SPRITES, TROPHY_SPRITES, PLANT_SPRITES, SHEET_SPRITES, REVEAL_MS,
+  kindRows, quarterOf, previousQuarter, quarterMonths, artSize, SPRITES, TROPHY_SPRITES, PLANT_SPRITES, REVEAL_MS,
   CABINET_SHELVES, PLANTER_SLOTS, type ProgressionState, type ProgressionSnapshot, type Track,
 } from '../src/progression'
 
@@ -98,7 +98,7 @@ describe('room helpers', () => {
 })
 
 describe('the art', () => {
-  const all = [...Object.values(SPRITES), ...Object.values(TROPHY_SPRITES), ...PLANT_SPRITES, ...Object.values(SHEET_SPRITES)]
+  const all = [...Object.values(SPRITES), ...Object.values(TROPHY_SPRITES), ...PLANT_SPRITES]
   it.each(all)('%s is in public/', p => {
     expect(existsSync(join(__dirname, '..', 'public', p))).toBe(true)
   })

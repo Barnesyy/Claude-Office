@@ -353,7 +353,7 @@ Progression:
   - Strategy Tester reports are never read as equity.
 - Watcher: `node scripts/transcript-watch.mjs --no-progression` sends no facts.
 - Replay demo: `node scripts/transcript-watch.mjs --dir tests/fixtures/progression-transcripts --once --from-start --all-projects`.
-- Sprites: `python3 scripts/generate-progression-sprites.py`. Credits are in `docs/progression-credits.md`.
+- Sprites: `python3 scripts/generate-progression-sprites.py` draws them all (PIL and numpy, no outside art). Credits are in `docs/progression-credits.md`.
 
 EA scenes:
 
