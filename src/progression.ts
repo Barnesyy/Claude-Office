@@ -74,6 +74,15 @@ export interface ProgressionSnapshot extends ProgressionTotals {
   recent: { at: number; kind: string; xp: number; label: string | null }[]
   /** The firm's ledger, newest first: money in (amount > 0) and purchases (amount < 0) */
   ledger?: { at: number; kind: string; amount: number; label: string | null }[]
+  /** The pay rules in force (server/progression.js) */
+  cashRules?: { base?: Record<string, number>; profitShare?: { demo: number; live: number }; breakthrough?: Record<string, number> }
+  /** The books: lifetime income by source, what was spent, and each day's money in, out and closing balance */
+  finances?: {
+    sources: { work: number; breakthrough: number; demo: number; live: number }
+    spent: number
+    since: string | null
+    days: { date: string; in: number; out: number; balance: number }[]
+  }
 }
 
 export interface DayReport {
@@ -107,7 +116,7 @@ export type ProgressionEvent =
   | { type: 'progression_reset'; timestamp?: number }
   | { type: 'progression_settings'; enabled: boolean; timestamp?: number }
 
-export type PanelTab = 'office' | 'trophies' | 'unlocks' | 'lessons' | 'today' | 'quarter'
+export type PanelTab = 'office' | 'trophies' | 'unlocks' | 'finances' | 'lessons' | 'today' | 'quarter'
 
 export interface ProgressionState {
   snapshot: ProgressionSnapshot | null
@@ -284,6 +293,44 @@ export function money(n: number | undefined | null): string {
   return `${v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString('en-US')}`
 }
 
+/** The firm's income lines in their fixed order, each with its share of the largest (for the bar). */
+export function incomeRows(sources?: Partial<Record<'work' | 'breakthrough' | 'demo' | 'live', number>>): { id: string; label: string; amount: number; share: number }[] {
+  const rows = [
+    { id: 'work', label: 'Research work' }, { id: 'breakthrough', label: 'Breakthroughs' },
+    { id: 'demo', label: 'Demo profits' }, { id: 'live', label: 'Live profits' },
+  ].map(r => ({ ...r, amount: Math.max(0, Math.round(sources?.[r.id as 'work'] ?? 0)) }))
+  const max = Math.max(1, ...rows.map(r => r.amount))
+  return rows.map(r => ({ ...r, share: r.amount / max }))
+}
+
+/** A short money label for an axis: $950, $1.2k, $15k */
+export function shortMoney(n: number): string {
+  if (n < 1000) return `$${Math.round(n)}`
+  const k = n / 1000
+  return `$${k >= 10 || Number.isInteger(k) ? Math.round(k) : k.toFixed(1)}k`
+}
+
+/**
+ * The cash chart's geometry: one balance per day, from zero to a round top.
+ * @param days the server's days, oldest first
+ * @param w the drawing's width
+ * @param h the drawing's height
+ */
+export function cashChart(days: { balance: number }[], w: number, h: number) {
+  const left = 30, top = 6, bottom = h - 14
+  const peak = Math.max(1, ...days.map(d => d.balance))
+  // A round top at or above the peak: 1, 2, 2.5 or 5 times a power of ten
+  const pow = 10 ** Math.floor(Math.log10(peak))
+  const max = [1, 2, 2.5, 5, 10].map(m => m * pow).find(v => v >= peak) ?? peak
+  const y = (v: number) => bottom - (Math.max(0, v) / max) * (bottom - top)
+  const x = (i: number) => days.length > 1 ? left + (i / (days.length - 1)) * (w - left - 3) : left
+  const points = days.map((d, i) => ({ x: x(i), y: y(d.balance) }))
+  const line = points.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')
+  const area = points.length ? `${line} L${points[points.length - 1].x.toFixed(1)} ${bottom} L${points[0].x.toFixed(1)} ${bottom} Z` : ''
+  const ticks = [0, max / 2, max].map(v => ({ value: v, y: y(v), label: shortMoney(v) }))
+  return { left, top, bottom, max, points, line, area, ticks }
+}
+
 /** The pieces for sale, in shop order by category (rare ones are not for sale). */
 export function shopShelves(unlocks: Unlock[]): { category: string; items: Unlock[] }[] {
   const out: { category: string; items: Unlock[] }[] = []
@@ -357,6 +404,12 @@ export const SPRITES = {
   // Upstream's own MIT sprites, and the fork's Trading Floor props
   rack: '/sprites/rooms/server-rack-2.webp',
   moneyTree: '/sprites/decoration/money-tree.png',
+  bear: '/sprites/trading/props/trader-bear.png',
+  mug: '/sprites/trading/props/candle-mug.png',
+  stopSign: '/sprites/trading/props/stop-loss-sign.png',
+  snakePlant: '/sprites/decoration/snake-plant.png',
+  monstera: '/sprites/decoration/monstera-plant.png',
+  airCon: '/sprites/decoration/ac-wall-unit.png',
   equity: '/sprites/trading/props/equity-curve-frame.png',
   bull: '/sprites/trading/props/bull-trophy.png',
   star: '/sprites/effects/star.png',

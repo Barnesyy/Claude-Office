@@ -170,6 +170,19 @@ export function cashFor(kind, xp) {
 /** The firm's cut of new profit above an account's high-water mark */
 export const PROFIT_SHARE = { demo: 0.1, live: 0.5 }
 /** A breakthrough: a tester result whose net profit / max drawdown beats the best for that EA, symbol and period */
+/**
+ * Which line of the books a payment belongs on.
+ * @param {string} kind the ledger kind
+ * @param {string | null} [label] the ledger label ("live account profit")
+ * @returns {'work' | 'breakthrough' | 'demo' | 'live' | 'spent'}
+ */
+export function cashSource(kind, label) {
+  if (kind === 'purchase') return 'spent'
+  if (kind === 'breakthrough') return 'breakthrough'
+  if (kind === 'ea_profit') return String(label ?? '').startsWith('live') ? 'live' : 'demo'
+  return 'work'
+}
+
 export const BREAKTHROUGH = { bonus: 400, minTrades: 30, margin: 1.02, paidPerDay: 3 }
 
 /**
@@ -185,6 +198,12 @@ export const UNLOCKS = [
   { id: 'equity-wall', title: 'Equity plate', detail: 'The demo equity high, in brass under the wall dashboard', category: 'Equipment', price: 2000 },
   { id: 'rooftop-garden', title: 'Window garden', detail: 'A plant for every merged PR', category: 'Decor', price: 2500 },
   { id: 'money-tree', title: 'Money tree', detail: 'It does not grow money. It looks like it might', category: 'Decor', price: 5000 },
+  // Props the office already had art for, now things to buy
+  { id: 'trader-bear', title: 'Trader bear', detail: 'Sits on the filing cabinet in a pinstripe jacket', category: 'Decor', price: 350 },
+  { id: 'candle-mug', title: 'Candle mug', detail: 'A candlestick mug on the lounge table', category: 'Decor', price: 200 },
+  { id: 'stop-loss-sign', title: 'Stop-loss sign', detail: 'Stands by the backtest rack, in case anyone forgets', category: 'Decor', price: 500 },
+  { id: 'office-plants', title: 'Office plants', detail: 'Two more plants on the floor', category: 'Decor', price: 800 },
+  { id: 'air-con', title: 'Air conditioning', detail: 'A wall unit over the water cooler', category: 'Equipment', price: 1800 },
   // More office space: each is a room (`room`) that does not exist until it is bought
   { id: 'room-lunch', title: 'Lunch room', detail: 'A kitchen and cafe tables for breaks and long idles', category: 'Office space', price: 3000, room: 'lunch-room' },
   { id: 'room-meeting', title: 'Meeting room', detail: 'Where a session and its workers gather', category: 'Office space', price: 4500, room: 'meeting-room' },
@@ -266,6 +285,7 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
     CREATE TABLE IF NOT EXISTS progression_awards (id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, tier TEXT, detail TEXT, rare INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL, date TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS progression_lessons (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL, fails INTEGER NOT NULL, ms INTEGER NOT NULL, session TEXT, at INTEGER NOT NULL, date TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS progression_garden (key TEXT PRIMARY KEY, repo TEXT, pr INTEGER, seed INTEGER NOT NULL, at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS progression_cashflow (date TEXT NOT NULL, source TEXT NOT NULL, amount INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (date, source)) WITHOUT ROWID;
     CREATE TABLE IF NOT EXISTS progression_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, date TEXT NOT NULL, kind TEXT NOT NULL, amount INTEGER NOT NULL, label TEXT);
     CREATE TABLE IF NOT EXISTS progression_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, date TEXT NOT NULL, kind TEXT NOT NULL, xp INTEGER NOT NULL, label TEXT);
   `)
@@ -297,6 +317,10 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
     log: db.prepare('INSERT INTO progression_log (at, date, kind, xp, label) VALUES (?, ?, ?, ?, ?)'),
     recent: db.prepare('SELECT at, kind, xp, label FROM progression_log ORDER BY id DESC LIMIT ?'),
     ledger: db.prepare('INSERT INTO progression_ledger (at, date, kind, amount, label) VALUES (?, ?, ?, ?, ?)'),
+    flow: db.prepare('INSERT INTO progression_cashflow (date, source, amount) VALUES (?, ?, ?) ON CONFLICT(date, source) DO UPDATE SET amount = amount + excluded.amount'),
+    flowAll: db.prepare('SELECT date, source, amount FROM progression_cashflow ORDER BY date'),
+    flowCount: db.prepare('SELECT COUNT(*) AS n FROM progression_cashflow'),
+    ledgerAll: db.prepare('SELECT date, kind, amount, label FROM progression_ledger ORDER BY id'),
     ledgerRecent: db.prepare('SELECT at, kind, amount, label FROM progression_ledger ORDER BY id DESC LIMIT ?'),
     ledgerDay: db.prepare('SELECT COALESCE(SUM(amount), 0) AS n FROM progression_ledger WHERE date = ? AND amount > 0'),
     ledgerDayKind: db.prepare('SELECT COUNT(*) AS n FROM progression_ledger WHERE date = ? AND kind = ? AND amount > 0'),
@@ -350,6 +374,37 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
     }
   }
 
+  // The books by day and source, kept for good (the ledger itself is pruned). A
+  // firm that earned before this table existed gets it filled from its ledger.
+  if (!q.flowCount.get().n) for (const r of q.ledgerAll.all()) q.flow.run(r.date, cashSource(r.kind, r.label), r.amount)
+
+  /**
+   * The firm's finances: where the money came from, what was spent, and the balance day by day.
+   * @param {number} [days] how many days of history, ending today
+   */
+  function finances(days = 30) {
+    const sources = { work: 0, breakthrough: 0, demo: 0, live: 0 }
+    const byDay = new Map()
+    let spent = 0
+    for (const r of q.flowAll.all()) {
+      const d = byDay.get(r.date) ?? { in: 0, out: 0 }
+      if (r.source === 'spent') { spent -= r.amount; d.out -= r.amount } else { sources[r.source] = (sources[r.source] ?? 0) + r.amount; d.in += r.amount }
+      byDay.set(r.date, d)
+    }
+    // Walk back from today's balance, so the line ends on the cash in hand
+    const out = []
+    let balance = state('cash', 0)
+    const t = now()
+    for (let i = 0; i < days; i++) {
+      const date = localDate(t - i * 86_400_000)
+      const d = byDay.get(date) ?? { in: 0, out: 0 }
+      out.unshift({ date, in: d.in, out: d.out, balance })
+      balance -= d.in - d.out
+    }
+    const first = [...byDay.keys()][0] ?? null
+    return { sources, spent, since: first, days: first ? out.filter(d => d.date >= first) : out.slice(-1) }
+  }
+
   /** Money in (amount > 0) or out (a purchase) of the firm's account, on the ledger. */
   function addCash(kind, amount, label) {
     const n = Math.round(amount)
@@ -358,6 +413,7 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
     setState('cash', state('cash', 0) + n)
     if (n > 0) setState('cashEarned', state('cashEarned', 0) + n)
     q.ledger.run(t, localDate(t), kind, n, clean(label) ?? null)
+    q.flow.run(localDate(t), cashSource(kind, label), n)
     q.pruneLedger.run(MAX_LOG)
     return n
   }
@@ -716,6 +772,7 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
       equity: high ? { high: high.equity, at: high.at, readings: state('equityReadings', 0) } : { high: null, readings: state('equityReadings', 0) },
       recent: q.recent.all(15),
       ledger: q.ledgerRecent.all(20),
+      finances: finances(),
       cashRules: { base: CASH_BASE, profitShare: PROFIT_SHARE, breakthrough: BREAKTHROUGH },
       xpRules: { base: XP_BASE, dailyCapFactor: DAILY_CAP_FACTOR, repeatMs: REPEAT_MS },
     }
@@ -780,7 +837,7 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
   function reset() {
     const keep = enabled()
     db.transaction(() => {
-      for (const t of ['progression_state', 'progression_daily', 'progression_counts', 'progression_seen', 'progression_awards', 'progression_lessons', 'progression_garden', 'progression_log', 'progression_ledger']) db.prepare(`DELETE FROM ${t}`).run()
+      for (const t of ['progression_state', 'progression_daily', 'progression_counts', 'progression_seen', 'progression_awards', 'progression_lessons', 'progression_garden', 'progression_log', 'progression_ledger', 'progression_cashflow']) db.prepare(`DELETE FROM ${t}`).run()
       setState('enabled', keep)
     })()
     lastBy.clear(); signalFails.clear()

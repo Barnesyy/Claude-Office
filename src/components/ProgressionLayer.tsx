@@ -45,14 +45,25 @@ export const SPOTS = {
   // Under the wall dashboard (the room's TV, right of the whiteboard)
   'equity-wall': { x: 90.8, y: 46.2 },
   'money-tree': { x: 70.0, y: 81.6 },
+  // Bought props that reuse the office's own art: each stands on something real
+  // (the filing cabinet's top, the lounge table, the floor by the backtest rack, the wall)
+  'trader-bear': { x: 45.2, y: 48.0 },
+  'candle-mug': { x: 43.4, y: 75.2 },
+  'stop-loss-sign': { x: 19.6, y: 61.6 },
+  'office-plants': { x: 21.0, y: 69.0 },
+  'office-plants-2': { x: 33.0, y: 80.0 },
+  'air-con': { x: 57.0, y: 30.5 },
 } as const
 
 type UnlockId = 'trophy-cabinet' | 'mailbox' | 'lessons-binder' | 'shipped-bin' | 'rooftop-garden' | 'backtest-bay' | 'equity-wall' | 'money-tree'
+  | 'trader-bear' | 'candle-mug' | 'stop-loss-sign' | 'office-plants' | 'air-con'
 
 
 const SPOT_FOR: Record<UnlockId, { x: number; y: number }> = {
   'trophy-cabinet': SPOTS.cabinet, mailbox: SPOTS.mailbox, 'lessons-binder': SPOTS.binder, 'shipped-bin': SPOTS.bin, 'rooftop-garden': SPOTS.planter,
   'backtest-bay': SPOTS['backtest-bay'], 'equity-wall': SPOTS['equity-wall'], 'money-tree': SPOTS['money-tree'],
+  'trader-bear': SPOTS['trader-bear'], 'candle-mug': SPOTS['candle-mug'], 'stop-loss-sign': SPOTS['stop-loss-sign'],
+  'office-plants': SPOTS['office-plants'], 'air-con': SPOTS['air-con'],
 }
 
 const MOVE = !(typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
@@ -250,6 +261,41 @@ const ProgressionLayer: React.FC = () => {
       {cover('money-tree', (
         <Prop spot={SPOTS['money-tree']} title="Money tree (level 5)" testId="prog-money-tree">
           <Sprite src={SPRITES.moneyTree} height={58} />
+        </Prop>
+      ))}
+
+      {cover('trader-bear', (
+        <Prop spot={SPOTS['trader-bear']} z={58} title="Trader bear" testId="prog-bear" className="prog-on-top">
+          <Sprite src={SPRITES.bear} height={17} />
+        </Prop>
+      ))}
+
+      {cover('candle-mug', (
+        <Prop spot={SPOTS['candle-mug']} z={83} title="Candle mug" testId="prog-mug" className="prog-on-top">
+          <Sprite src={SPRITES.mug} height={9} />
+        </Prop>
+      ))}
+
+      {cover('stop-loss-sign', (
+        <Prop spot={SPOTS['stop-loss-sign']} title="Stop-loss sign" testId="prog-stop-sign" className="prog-on-floor">
+          <Sprite src={SPRITES.stopSign} height={25} />
+        </Prop>
+      ))}
+
+      {cover('office-plants', (
+        <>
+          <Prop spot={SPOTS['office-plants']} title="Snake plant" testId="prog-plants" className="prog-on-floor">
+            <Sprite src={SPRITES.snakePlant} height={56} />
+          </Prop>
+          <Prop spot={SPOTS['office-plants-2']} title="Monstera" className="prog-on-floor">
+            <Sprite src={SPRITES.monstera} height={62} />
+          </Prop>
+        </>
+      ))}
+
+      {cover('air-con', (
+        <Prop spot={SPOTS['air-con']} z={20} title="Air conditioning" testId="prog-aircon">
+          <Sprite src={SPRITES.airCon} height={32} />
         </Prop>
       ))}
 

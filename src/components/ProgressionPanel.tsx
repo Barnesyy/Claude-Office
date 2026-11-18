@@ -14,11 +14,12 @@ import {
   type DayReport, type QuarterReport, type PanelTab, type ProgressionSnapshot,
   quarterMonths,
 } from '../progression'
+import FinancesTab from './FinancesTab'
 import '../styles/settings.css'
 import '../styles/progression.css'
 
 const TABS: { id: PanelTab; label: string }[] = [
-  { id: 'office', label: 'Firm' }, { id: 'unlocks', label: 'Shop' }, { id: 'trophies', label: 'Trophies' },
+  { id: 'office', label: 'Firm' }, { id: 'unlocks', label: 'Shop' }, { id: 'finances', label: 'Finances' }, { id: 'trophies', label: 'Trophies' },
   { id: 'lessons', label: 'Lessons' }, { id: 'today', label: 'Today' }, { id: 'quarter', label: 'Quarter' },
 ]
 
@@ -51,11 +52,6 @@ function OfficeTab({ snap }: { snap: ProgressionSnapshot }) {
         <dt>MT5 tester runs</dt><dd>{snap.counts.mt5_run ?? 0} ({snap.counts.walk_forward ?? 0} walk-forward)</dd>
         <dt>Demo equity high</dt><dd>{snap.equity.high !== null ? snap.equity.high.toFixed(2) : <span className="pp-dim">no MT5 report configured</span>}</dd>
       </dl>
-      <div className="pp-sub">Money in and out</div>
-      {(snap.ledger ?? []).length === 0 && <div className="pp-dim">Nothing yet: research pays, and so does a new equity high on an account report.</div>}
-      <ul className="pp-list">
-        {(snap.ledger ?? []).slice(0, 8).map((r, i) => <li key={i} className="pp-row"><span className={`pp-xp ${r.amount < 0 ? 'pp-spent' : 'pp-cash'}`}>{r.amount > 0 ? '+' : ''}{money(r.amount)}</span><span className="pp-what">{r.amount < 0 ? `bought: ${r.label ?? ''}` : (r.label ?? r.kind)}</span><span className="pp-dim pp-when">{when(r.at)}</span></li>)}
-      </ul>
       <div className="pp-sub">Recent XP</div>
       {snap.recent.length === 0 && <div className="pp-dim">Nothing yet: finish a turn, run the tests, merge a PR.</div>}
       <ul className="pp-list">
@@ -236,12 +232,13 @@ const ProgressionPanel: React.FC = () => {
       <div className="pp-tabs" role="tablist">
         {TABS.map(t => <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => openProgressionPanel(t.id)} data-testid={`prog-tab-btn-${t.id}`}>{t.label}</button>)}
       </div>
-      <div className="pp-body">
+      <div className="pp-body" key={tab}>
         {!snap && <div className="op-note">Loading…</div>}
         {snap && !snap.enabled && <div className="op-note">Progression is off. Turn it on in Settings.</div>}
         {snap && snap.enabled && tab === 'office' && <OfficeTab snap={snap} />}
         {snap && snap.enabled && tab === 'trophies' && <TrophiesTab snap={snap} />}
         {snap && snap.enabled && tab === 'unlocks' && <UnlocksTab snap={snap} />}
+        {snap && snap.enabled && tab === 'finances' && <FinancesTab snap={snap} />}
         {snap && snap.enabled && tab === 'lessons' && <LessonsTab snap={snap} />}
         {snap && snap.enabled && tab === 'today' && <TodayTab />}
         {snap && snap.enabled && tab === 'quarter' && <QuarterTab />}

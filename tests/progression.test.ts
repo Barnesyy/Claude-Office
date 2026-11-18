@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import Database from 'better-sqlite3'
 import {
   createProgression, xpFor, levelFloor, levelOf, levelTitle, XP_BASE, DAILY_CAP_FACTOR, REPEAT_MS, quarterOf, isQuarter,
-  SIGNAL_LESSON_WAIT_MS, CASH_BASE, cashFor, BREAKTHROUGH, PROFIT_SHARE } from '../server/progression.js'
+  SIGNAL_LESSON_WAIT_MS, CASH_BASE, cashFor, BREAKTHROUGH, PROFIT_SHARE, cashSource } from '../server/progression.js'
 
 type Sent = { type: string; [k: string]: any }
 
@@ -363,6 +363,26 @@ describe('the firm\'s money', () => {
     t.p.setEnabled(true)
     t.p.reset()
     expect(t.p.rooms()).toEqual([])
+  })
+
+  it('finances: income by source, what was spent, and a balance per day that ends on the cash in hand', () => {
+    const t = fresh()
+    t.p.noteFact({ kind: 'commit', id: 'c1', label: 'git commit', sessionId: S })
+    t.tick(86_400_000)
+    for (let i = 0; i < 3; i++) t.p.noteFact({ kind: 'pr_merge', id: `p${i}`, pr: i, repo: 'a/b' })
+    expect(t.p.buy('trader-bear')).toMatchObject({ ok: true })
+    const s = t.p.snapshot()
+    const f = s.finances
+    expect(f.sources).toEqual({ work: s.cashEarned, breakthrough: 0, demo: 0, live: 0 })
+    expect(f.spent).toBe(350)
+    expect(f.days).toHaveLength(2)
+    expect(f.days[0]).toMatchObject({ in: CASH_BASE.commit, out: 0, balance: CASH_BASE.commit })
+    expect(f.days[1]).toMatchObject({ out: 350, balance: s.cash })
+    expect(cashSource('ea_profit', 'live account profit')).toBe('live')
+    expect(cashSource('ea_profit', 'demo account profit')).toBe('demo')
+    expect(cashSource('breakthrough')).toBe('breakthrough')
+    t.p.reset()
+    expect(t.p.snapshot().finances).toMatchObject({ spent: 0, since: null })
   })
 
   it('buying: not without the money, once only, and the piece is then in the office', () => {

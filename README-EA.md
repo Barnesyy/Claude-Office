@@ -265,6 +265,11 @@ link (`npm run open`); a plain `127.0.0.1` tab and a phone are read-only.
 | Equity plate | $2,000 | `DEMO HIGH` plate under the wall dashboard |
 | Window garden | $2,500 | a plant per merged PR |
 | Money tree | $5,000 | it looks like it might grow money |
+| Candle mug | $200 | a candlestick mug on the lounge table |
+| Trader bear | $350 | sits on the filing cabinet |
+| Stop-loss sign | $500 | stands by the backtest rack |
+| Office plants | $800 | two more plants on the floor |
+| Air conditioning | $1,800 | a wall unit over the water cooler |
 | Lunch room | $3,000 | more office space: breaks and long idles happen there |
 | Meeting room | $4,500 | more office space: a session and its workers gather there |
 | Server room | $6,000 | more office space: MCP server workers stand at the racks |
@@ -274,12 +279,16 @@ there and the floor plan does not list it. The corridor comes with the first roo
 page which rooms exist (`rooms` in the snapshot, `office_rooms` after a purchase). With progression switched
 off, every room is open as before.
 
+The Finances tab is the firm's books: cash in hand, earned and spent, the balance day by day for the
+last 30 days, and income split into research work, breakthroughs, demo profits and live profits. The daily
+totals are kept for good in `progression_cashflow` (the ledger itself keeps the last 300 lines).
+
 The four rare finds are earned, not bought, and show as `???` until then.
 The Shop tab also lists the last money in and out (table `progression_ledger`).
 Anything unlocked under the old level rules stays in the room; a reset in Settings empties it.
 
-The level button in the status strip shows the balance and opens the panel. Its tabs are Firm, Shop, Trophies,
-Lessons, Today and Quarter.
+The level button in the status strip shows the balance and opens the panel. Its tabs are Firm, Shop, Finances,
+Trophies, Lessons, Today and Quarter.
 
 Settings → Progression turns it on or off and resets it (UI token).
 Progression is loopback only: a LAN phone shows none of it.
