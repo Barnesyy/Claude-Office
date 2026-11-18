@@ -341,6 +341,8 @@ export function useProgression(): ProgressionState {
 
 export const SPRITES = {
   cabinet: '/sprites/progression/trophy-cabinet.png',
+  // Its front frame alone, drawn over the trophies so they stand inside it
+  cabinetFront: '/sprites/progression/trophy-cabinet-front.png',
   mailboxUp: '/sprites/progression/mailbox-up.png',
   mailboxDown: '/sprites/progression/mailbox-down.png',
   bin: '/sprites/progression/shipped-bin.png',

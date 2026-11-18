@@ -201,7 +201,16 @@ def trophy_cabinet():
     a.grad(plate, BRASS[0], BRASS[2], plate[3], plate[1])
     a.line(plate + [plate[0]], BRASS[3], 0.35, 200)
     im, off = finish(a, floor(iso, -1.5, W + 1.5, -1.5, D + 1.5, 2.5, 1.5))
-    slots = [[pct(P(6.2 + k * 9.2, D - 3.4, z0), off, im) for k in range(4)] for z0, _ in reversed(cav)]
+    # Where a trophy's foot stands. Seen from the front, a trophy at shelf depth y is hidden by the
+    # right-hand upright once its x passes W - 2.5 - (D - y), so the row stops short of that.
+    slots = [[pct(P(7.6 + k * 7.5, D - 3.4, z0), off, im) for k in range(4)] for z0, _ in reversed(cav)]
+    # The cabinet's front frame on its own (the picture with the three openings cut out): the page
+    # draws it over the trophies, so they stand inside the cabinet, behind its uprights and rails.
+    cut = Image.new('L', im.size, 255)
+    for z0, z1 in cav:
+        ImageDraw.Draw(cut).polygon([((x - off[0]) * SCALE, (y - off[1]) * SCALE) for x, y in iso.fy(2.5, W - 2.5, z0, z1, D)], fill=0)
+    front = im.copy(); front.putalpha(ImageChops.multiply(im.getchannel('A'), cut))
+    save(front, 'trophy-cabinet-front.png')
     centre = lambda q: ((q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2)
     save(im, 'trophy-cabinet.png', {
         'shelves': slots,

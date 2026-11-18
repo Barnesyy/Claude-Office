@@ -180,8 +180,9 @@ const ProgressionLayer: React.FC = () => {
             <Sprite src={SPRITES.cabinet} />
             {trophies.map((t, i) => slots[i] && (
               <img key={t.track} className="prog-trophy" src={TROPHY_SPRITES[t.tier]} alt={`${t.title} (${t.tier})`} title={`${t.title} · ${t.tier}`}
-                style={{ left: `${slots[i].x}%`, top: `${slots[i].y}%`, height: 13 }} />
+                style={{ left: `${slots[i].x}%`, top: `${slots[i].y}%`, height: 12.5 }} />
             ))}
+            <img className="prog-cabinet-front" src={SPRITES.cabinetFront} alt="" draggable={false} />
             <div className="prog-cabinet-top" style={{ left: `${CABINET_TOP.x}%`, top: `${CABINET_TOP.y}%` }}>
               {rares.map(r => <img key={r} src={r === 'golden-bull' ? SPRITES.bull : r === 'crown' ? SPRITES.crown : SPRITES.gem} alt={r} title={unlock(r)?.title} style={{ height: r === 'golden-bull' ? 22 : 12 }} />)}
             </div>

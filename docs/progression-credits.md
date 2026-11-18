@@ -7,7 +7,7 @@ Licence: MIT, with this repository.
 
 | Sprite | What it is |
 | --- | --- |
-| trophy-cabinet | display cabinet; its manifest entry says where the trophies, level plate and XP bar go |
+| trophy-cabinet, trophy-cabinet-front | display cabinet, and its front frame alone (drawn over the trophies so they stand inside it); its manifest entry says where the trophies, level plate and XP bar go |
 | trophy-bronze, -silver, -gold, -platinum | the cups on its shelves |
 | mailbox-up, mailbox-down | mailbox, flag up or down |
 | shipped-bin, parcel | crate and the parcels piled in it |

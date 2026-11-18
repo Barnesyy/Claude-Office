@@ -30,6 +30,7 @@
 .prog-plant { z-index: 0; }
 .prog-planter > img:last-child { position: relative; z-index: 1; }
 .prog-planter .prog-plant { z-index: 2; transform: translate(-50%, -92%); }
+.prog-cabinet-front { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
 .prog-cabinet-top {
   position: absolute;
   transform: translate(-50%, -92%);
