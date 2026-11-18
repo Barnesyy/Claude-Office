@@ -24,17 +24,16 @@
  *           ~/.codex/sessions/YYYY/MM/DD/rollout-<time>-<thread id>.jsonl).
  *           Built from the format in openai/codex (codex-rs/protocol and
  *           codex-rs/rollout). Turn ends are explicit (turn_complete).
- *   grok    Grok's CLI (~/.grok/sessions). Its format is not published, so
- *           the adapter is tolerant: it accepts chat-completion style rows
- *           (role / tool_calls / role "tool") and Claude style rows (content
- *           blocks). Turn ends are inferred from a quiet text reply.
+ *   grok    Grok's CLI (~/.grok/sessions/<cwd>/<id>/updates.jsonl, with
+ *           events.jsonl beside it). Built from real sessions. Turn ends are
+ *           explicit, and an open permission prompt is read, not guessed.
  *
  * Nothing is written to either tool's folder.
  */
 
 import { readdirSync, statSync, openSync, readSync, closeSync } from 'fs'
 import { homedir } from 'os'
-import { join, basename, dirname } from 'path'
+import { join, basename } from 'path'
 
 export const PROVIDER_IDS = Object.freeze(['claude', 'codex', 'grok'])
 
@@ -105,7 +104,7 @@ export function normaliseTool(rawName, rawArgs) {
   if (/^(write_file|create_file|write|save_file)$/i.test(name)) return { name: 'Write', input: { ...args, file_path: file } }
   if (/^(edit_file|str_replace_editor|str_replace|replace_in_file|edit|multi_edit|search_replace)$/i.test(name)) return { name: 'Edit', input: { ...args, file_path: file } }
   if (/^(grep|grep_search|search_files|search|ripgrep|codebase_search)$/i.test(name)) return { name: 'Grep', input: { ...args, pattern: firstString(args, ['pattern', 'query', 'regex', 'search']) } }
-  if (/^(glob|list_files|list_dir|list_directory|find_files|ls|file_search)$/i.test(name)) return { name: 'Glob', input: { ...args, pattern: firstString(args, ['pattern', 'glob', 'query', 'path', 'directory']) } }
+  if (/^(glob|list_files|list_dir|list_directory|find_files|ls|file_search)$/i.test(name)) return { name: 'Glob', input: { ...args, pattern: firstString(args, ['pattern', 'glob', 'query', 'path', 'directory', 'target_directory']) } }
   if (/^(web_search|search_web)$/i.test(name)) return { name: 'WebSearch', input: args }
   if (/^(web_fetch|fetch_url|browse|open_url)$/i.test(name)) return { name: 'WebFetch', input: args }
   return { name: name || 'tool', input: args }
@@ -368,95 +367,175 @@ export class CodexAdapter {
 }
 
 // ---------------------------------------------------------------------------
-// Grok (and any other chat-shaped JSONL): a tolerant adapter
+// Grok
 // ---------------------------------------------------------------------------
+//
+// Grok's CLI ("Grok Build") keeps a folder per session:
+//   ~/.grok/sessions/<url-encoded cwd>/<session id>/
+//     updates.jsonl   the session's update stream, one JSON-RPC notification
+//                     per line: { timestamp, method: "session/update",
+//                     params: { sessionId, update: { sessionUpdate, … }, _meta } }
+//                     with user_message_chunk, agent_message_chunk, tool_call,
+//                     tool_call_update (status completed | failed) and
+//                     turn_completed (stop_reason, usage)
+//     events.jsonl    timings: permission_requested / permission_resolved,
+//                     tool_started, turn_ended, …
+//     summary.json    title (session_summary), cwd, current_model_id
+// Read from real sessions (Grok 4.7, November 2026). updates.jsonl is the
+// session; events.jsonl only adds the one thing it cannot say, that a
+// permission prompt is open right now.
 
-const GENERIC_NAMES = /^(messages?|transcript|history|session|chat|events?|conversation|log|rollout)$/i
+const GROK_KIND = { read: 'Read', edit: 'Edit', execute: 'Bash', search: 'Grep', list: 'Glob', fetch: 'WebFetch' }
+const GROK_RESCAN_MS = 5000
 
-function chatScan(prefix) {
-  return (config, now) => {
-    const found = []
-    const cutoff = now - config.scanDays * 86_400_000
-    const walk = (dir, depth) => {
-      let entries = []
-      try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
-      for (const e of entries) {
-        const path = join(dir, e.name)
-        if (e.isDirectory()) { if (depth < 4 && !e.name.startsWith('.')) walk(path, depth + 1); continue }
-        if (!e.isFile() || !e.name.endsWith('.jsonl')) continue
-        let st
-        try { st = statSync(path) } catch { continue }
-        if (st.mtimeMs < cutoff) continue
-        const stem = e.name.slice(0, -6)
-        const id = GENERIC_NAMES.test(stem) ? basename(dirname(path)) : stem
-        found.push({ path, enc: '', sessionId: `${prefix}-${safeId(id)}`, kind: 'main' })
+function readJson(path) {
+  try { return JSON.parse(readHead(path, 256 * 1024)) } catch { return null }
+}
+
+function grokScan(config, now) {
+  const cache = (grokScan.cache ??= new Map())
+  let hit = cache.get(config.dir)
+  // The folder list is walked every few seconds; in between, the known sessions are enough
+  if (hit && now - hit.at < GROK_RESCAN_MS && now >= hit.at) return hit.found
+  const found = []
+  const cutoff = now - config.scanDays * 86_400_000
+  const list = d => { try { return readdirSync(d, { withFileTypes: true }) } catch { return [] } }
+  for (const c of list(config.dir)) {
+    if (!c.isDirectory()) continue
+    let cwd = ''
+    try { cwd = decodeURIComponent(c.name) } catch { cwd = c.name }
+    for (const sdir of list(join(config.dir, c.name))) {
+      if (!sdir.isDirectory()) continue
+      const dir = join(config.dir, c.name, sdir.name)
+      const path = join(dir, 'updates.jsonl')
+      let st
+      try { st = statSync(path) } catch { continue }
+      if (st.mtimeMs < cutoff) continue
+      const sessionId = `grok-${safeId(sdir.name)}`
+      const summaryPath = join(dir, 'summary.json')
+      found.push({ path, enc: '', sessionId, kind: 'main', cwd, summaryPath })
+      found.push({ path: join(dir, 'events.jsonl'), enc: '', sessionId, kind: 'main', aux: true, cwd })
+    }
+  }
+  cache.set(config.dir, { at: now, found })
+  return found
+}
+
+/** updates.jsonl -> Claude-shaped records. */
+export class GrokAdapter {
+  constructor(entry = {}) {
+    this.cwd = entry.cwd || ''
+    this.summaryPath = entry.summaryPath
+    this.model = ''
+    this.title = ''
+    this.text = ''
+    this.open = new Map()
+  }
+
+  row(type, at, message, extra = {}) {
+    return { type, timestamp: at, ...(this.cwd ? { cwd: this.cwd } : {}), message, ...extra }
+  }
+
+  /** The title and model Grok keeps beside the stream (summary.json), when they changed. */
+  summary(at, out) {
+    if (!this.summaryPath) return
+    const j = readJson(this.summaryPath)
+    if (!j) return
+    if (typeof j.current_model_id === 'string' && j.current_model_id) this.model = j.current_model_id
+    const t = typeof j.session_summary === 'string' ? j.session_summary.trim() : ''
+    if (t && t !== this.title) { this.title = t; out.push({ type: 'custom-title', timestamp: at, customTitle: t }) }
+  }
+
+  /** What Grok has said since the last tool call or prompt, as one text row. */
+  flushText(at, out, extra = {}) {
+    const text = this.text.trim()
+    this.text = ''
+    if (!text && !extra.stop_reason) return
+    out.push(this.row('assistant', at, { role: 'assistant', model: this.model || undefined, content: [{ type: 'text', text: text || 'done' }], ...extra }))
+  }
+
+  adapt(lines) {
+    const out = []
+    let last = new Date().toISOString()
+    // The title and model first, so the session starts with them
+    if (!this.title && lines.length) this.summary(iso(lines[0]?.params?._meta?.agentTimestampMs ?? lines[0]?.timestamp, last), out)
+    for (const l of lines) {
+      const u = l?.params?.update
+      if (!u || typeof u !== 'object') continue
+      const meta = l.params._meta ?? {}
+      const at = iso(meta.agentTimestampMs ?? l.timestamp, last)
+      last = at
+      switch (u.sessionUpdate) {
+        case 'user_message_chunk': {
+          const text = String(u.content?.text ?? '').trim()
+          if (typeof u._meta?.modelId === 'string') this.model = u._meta.modelId
+          this.text = ''
+          if (text) out.push(this.row('user', at, { role: 'user', content: text }))
+          break
+        }
+        case 'agent_message_chunk':
+          if (typeof u.content?.text === 'string') this.text += u.content.text
+          break
+        case 'tool_call': {
+          this.flushText(at, out)
+          const tool = u._meta?.['x.ai/tool'] ?? {}
+          const raw = String(tool.name ?? u.title ?? 'tool')
+          const ns = typeof tool.namespace === 'string' ? tool.namespace : ''
+          let { name, input } = normaliseTool(raw, u.rawInput)
+          if (ns && ns !== 'grok_build' && !name.startsWith('mcp__')) name = `mcp__${ns}__${raw}`
+          else if (name === raw && GROK_KIND[tool.kind]) name = GROK_KIND[tool.kind]
+          const id = String(u.toolCallId ?? `call-${at}-${this.open.size}`)
+          this.open.set(id, true)
+          out.push(this.row('assistant', at, { role: 'assistant', model: this.model || undefined, content: [{ type: 'tool_use', id, name, input }] }))
+          break
+        }
+        case 'tool_call_update': {
+          const id = String(u.toolCallId ?? '')
+          if ((u.status !== 'completed' && u.status !== 'failed') || !this.open.has(id)) break
+          this.open.delete(id)
+          const text = (Array.isArray(u.content) ? u.content : []).map(c => (typeof c?.content?.text === 'string' ? c.content.text : '')).filter(Boolean).join('\n')
+          out.push(this.row('user', at, { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: text.slice(0, 20_000), is_error: u.status === 'failed' }] }))
+          break
+        }
+        case 'turn_completed': {
+          const cancelled = u.stop_reason === 'cancelled'
+          for (const id of [...this.open.keys()]) {
+            this.open.delete(id)
+            out.push(this.row('user', at, { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: cancelled ? 'interrupted' : '', is_error: cancelled }] }))
+          }
+          if (cancelled) {
+            this.flushText(at, out)
+            out.push(this.row('user', at, { role: 'user', content: '[Request interrupted by user]' }))
+          } else this.flushText(at, out, { stop_reason: 'end_turn' })
+          break
+        }
       }
     }
-    walk(config.dir, 0)
-    return found
+    if (out.length) this.summary(last, out)
+    return out
   }
 }
 
-/** Chat-completion rows or Claude rows -> Claude-shaped records. */
-export class ChatAdapter {
-  constructor() {
-    this.model = ''
-    this.cwd = ''
-    this.n = 0
-  }
+/**
+ * events.jsonl -> the one record the stream cannot give: a permission prompt
+ * that is open. Grok writes permission_requested for every call and resolves
+ * the ones its rules allow in the same instant, so only a request that is
+ * still unanswered at the end of a read is a prompt on screen.
+ */
+export class GrokEventsAdapter {
+  constructor() { this.asked = null }
 
   adapt(lines) {
     const out = []
     for (const l of lines) {
       if (!l || typeof l !== 'object') continue
-      const m = l.message && typeof l.message === 'object' ? l.message : (l.data && typeof l.data === 'object' && l.data.role ? l.data : l)
-      const at = iso(l.timestamp ?? l.created_at ?? l.createdAt ?? l.time ?? l.ts ?? m.timestamp, new Date().toISOString())
-      const cwd = firstString(l, ['cwd', 'workingDirectory', 'working_directory', 'workdir']) || firstString(m, ['cwd'])
-      if (cwd) this.cwd = cwd
-      const model = typeof m.model === 'string' ? m.model : (typeof l.model === 'string' ? l.model : '')
-      if (model) this.model = model
-      const title = firstString(l, ['title', 'session_title', 'name', 'summary'])
-      const role = String(m.role ?? l.role ?? l.type ?? '').toLowerCase()
-      const base = { timestamp: at, ...(this.cwd ? { cwd: this.cwd } : {}) }
-      if (!['user', 'human', 'assistant', 'ai', 'model', 'tool', 'function', 'tool_result'].includes(role)) {
-        if (title && /title|meta|session/.test(String(l.type ?? ''))) out.push({ type: 'custom-title', timestamp: at, customTitle: title })
-        continue
-      }
-      const content = m.content ?? m.text ?? l.content ?? l.text ?? ''
-      if (role === 'user' || role === 'human') {
-        const results = Array.isArray(content) ? content.filter(b => b?.type === 'tool_result') : []
-        if (results.length) out.push({ ...base, type: 'user', message: { role: 'user', content: results } })
-        else { const text = textBlocks(content).trim(); if (text) out.push({ ...base, type: 'user', message: { role: 'user', content: text } }) }
-        continue
-      }
-      if (role === 'tool' || role === 'function' || role === 'tool_result') {
-        const id = m.tool_call_id ?? m.tool_use_id ?? m.call_id ?? l.tool_call_id ?? m.id
-        if (!id) continue
-        const { text, failed } = readOutput(content)
-        out.push({ ...base, type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: String(id), content: text.slice(0, 20_000), is_error: failed || m.is_error === true || m.isError === true }] } })
-        continue
-      }
-      // assistant
-      const blocks = []
-      const text = Array.isArray(content) ? content.filter(b => typeof b === 'string' || b?.type === 'text' || b?.type === 'output_text').map(b => (typeof b === 'string' ? b : b.text)).join('\n') : String(content ?? '')
-      if (text.trim()) blocks.push({ type: 'text', text })
-      if (Array.isArray(content)) {
-        for (const b of content) {
-          if (b?.type !== 'tool_use' || !b.name) continue
-          const { name, input } = normaliseTool(b.name, b.input)
-          blocks.push({ type: 'tool_use', id: String(b.id ?? `call-${++this.n}`), name, input })
-        }
-      }
-      for (const c of Array.isArray(m.tool_calls) ? m.tool_calls : (Array.isArray(m.toolCalls) ? m.toolCalls : [])) {
-        const fn = c?.function ?? c
-        if (!fn?.name) continue
-        const { name, input } = normaliseTool(fn.name, fn.arguments ?? fn.args ?? fn.input)
-        blocks.push({ type: 'tool_use', id: String(c.id ?? c.call_id ?? `call-${++this.n}`), name, input })
-      }
-      if (!blocks.length) continue
-      const stop = m.stop_reason ?? m.finish_reason ?? l.finish_reason
-      const ended = (stop === 'end_turn' || stop === 'stop') && !blocks.some(b => b.type === 'tool_use')
-      out.push({ ...base, type: 'assistant', message: { role: 'assistant', model: this.model || undefined, content: blocks, ...(ended ? { stop_reason: 'end_turn' } : {}) } })
+      if (l.type === 'permission_requested') this.asked = { at: iso(l.ts, new Date().toISOString()), tool: String(l.tool_name ?? '') }
+      else if (l.type === 'permission_resolved' || l.type === 'turn_ended' || l.type === 'tool_completed') this.asked = null
+    }
+    if (this.asked) {
+      const { name } = normaliseTool(this.asked.tool, {})
+      out.push({ type: 'x-permission', timestamp: this.asked.at, toolName: name })
+      this.asked = null
     }
     return out
   }
@@ -481,12 +560,13 @@ export const PROVIDERS = Object.freeze({
   grok: {
     id: 'grok',
     name: 'Grok',
-    explicitTurnEnd: false,
+    /** turn_completed is in the stream */
+    explicitTurnEnd: true,
+    /** An open prompt is read from events.jsonl, never guessed */
     guessPermissions: false,
-    turnIdleMs: 8000,
     defaultDir: env => join(env.GROK_HOME || join(homedir(), '.grok'), 'sessions'),
-    scan: chatScan('grok'),
-    createAdapter: () => new ChatAdapter(),
+    scan: grokScan,
+    createAdapter: entry => (entry.aux ? new GrokEventsAdapter() : new GrokAdapter(entry)),
   },
 })
 

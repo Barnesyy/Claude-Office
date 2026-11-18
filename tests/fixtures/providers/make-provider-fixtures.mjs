@@ -3,14 +3,16 @@
  * Writes the Codex and Grok session fixtures (tests/provider-sources.test.ts).
  *   node tests/fixtures/providers/make-provider-fixtures.mjs
  * Codex: the rollout shape of openai/codex (codex-rs/protocol, codex-rs/rollout):
- * one { timestamp, type, payload } per line. Grok: chat-completion rows.
+ * one { timestamp, type, payload } per line. Grok: the session folder its CLI keeps
+ * (updates.jsonl, events.jsonl, summary.json), in the shape of real ones.
  * The numbers and names are made up; nothing here is a real session.
  */
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+rmSync(join(HERE, 'grok'), { recursive: true, force: true })
 const T0 = Date.parse('2026-11-18T02:00:00.000Z')
 const at = s => new Date(T0 + s * 1000).toISOString()
 const write = (path, lines) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, lines.map(l => JSON.stringify(l)).join('\n') + '\n') }
@@ -57,14 +59,46 @@ write(join(HERE, 'codex', 'sessions', '2026', '11', '18', `rollout-2026-11-18T02
   ev(8, { type: 'turn_complete', turn_id: 'w1', last_agent_message: 'Lot size is set on line 12.' }),
 ])
 
-export const GROK_SESSION = 'grok-sess-0001'
-write(join(HERE, 'grok', 'sessions', GROK_SESSION, 'messages.jsonl'), [
-  { type: 'session', timestamp: at(0), cwd: '/home/jake/ea', title: 'Check the spread filter', model: 'grok-code-fast-1' },
-  { timestamp: at(1), role: 'user', content: 'Check the spread filter' },
-  { timestamp: at(2), role: 'assistant', model: 'grok-code-fast-1', content: '', tool_calls: [{ id: 'g1', type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: 'Filter.mqh' }) } }] },
-  { timestamp: at(3), role: 'tool', tool_call_id: 'g1', content: 'input double MaxSpread=2.0;' },
-  { timestamp: at(4), role: 'assistant', content: '', tool_calls: [{ id: 'g2', type: 'function', function: { name: 'run_terminal_cmd', arguments: JSON.stringify({ command: 'git status' }) } }] },
-  { timestamp: at(5), role: 'tool', tool_call_id: 'g2', content: 'On branch main' },
-  { timestamp: at(6), role: 'assistant', content: 'The spread filter caps at 2.0 points.' },
+// Grok: ~/.grok/sessions/<url-encoded cwd>/<session id>/{updates.jsonl, events.jsonl, summary.json}
+export const GROK_SESSION = '01a1e000-0000-7000-8000-000000000001'
+const GROK_CWD = 'C:\\Users\\Barnesy\\OneDrive\\EA Development'
+const gdir = join(HERE, 'grok', 'sessions', encodeURIComponent(GROK_CWD), GROK_SESSION)
+let gseq = 0
+const upd = (s, update, method = 'session/update') => ({ timestamp: Math.floor((T0 + s * 1000) / 1000), method,
+  params: { sessionId: GROK_SESSION, update, _meta: { eventId: `${GROK_SESSION}-${++gseq}`, agentTimestampMs: T0 + s * 1000 } } })
+const xtool = (name, kind, extra = {}) => ({ 'x.ai/tool': { version: 1, name, kind, namespace: 'grok_build', ...extra } })
+write(join(gdir, 'updates.jsonl'), [
+  upd(0, { sessionUpdate: 'current_mode_update', currentModeId: 'default' }),
+  upd(1, { sessionUpdate: 'hook_execution', event_name: 'user_prompt_submit', runs: [] }, '_x.ai/session/update'),
+  upd(1, { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'Check the spread filter' }, _meta: { modelId: 'grok-4.7', promptIndex: 0 } }),
+  upd(2, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'thinking' } }),
+  upd(3, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Reading the filter. ' } }),
+  upd(3, { sessionUpdate: 'tool_call', toolCallId: 'g1', title: 'read_file', rawInput: { target_file: 'Filter.mqh' }, _meta: xtool('read_file', 'read') }),
+  upd(3, { sessionUpdate: 'tool_call_update', toolCallId: 'g1', kind: 'read', title: 'Read `Filter.mqh`', rawInput: { variant: 'ReadFile', target_file: 'Filter.mqh' } }),
+  upd(4, { sessionUpdate: 'tool_call_update', toolCallId: 'g1', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'input double MaxSpread=2.0;' } }] }),
+  upd(5, { sessionUpdate: 'tool_call', toolCallId: 'g2', title: 'list_dir', rawInput: { target_directory: 'Include' }, _meta: xtool('list_dir', 'list') }),
+  upd(5, { sessionUpdate: 'tool_call_update', toolCallId: 'g2', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'Filter.mqh' } }] }),
+  upd(6, { sessionUpdate: 'tool_call', toolCallId: 'g3', title: 'run_terminal_command', rawInput: { command: 'git status', description: 'Check the tree' }, _meta: xtool('run_terminal_command', 'execute') }),
+  upd(8, { sessionUpdate: 'tool_call_update', toolCallId: 'g3', status: 'failed', content: [{ type: 'content', content: { type: 'text', text: 'fatal: not a git repository' } }] }),
+  upd(9, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'The spread filter ' } }),
+  upd(9, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'caps at 2.0 points.' } }),
+  upd(10, { sessionUpdate: 'turn_completed', stop_reason: 'end_turn', usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 }, elapsed_ms: 9000 }, '_x.ai/session/update'),
+  // A second turn, cancelled while a command waits
+  upd(20, { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'Now run the tester' }, _meta: { modelId: 'grok-4.7', promptIndex: 1 } }),
+  upd(21, { sessionUpdate: 'tool_call', toolCallId: 'g4', title: 'run_terminal_command', rawInput: { command: 'terminal64.exe /config:tester.ini' }, _meta: xtool('run_terminal_command', 'execute') }),
+  upd(25, { sessionUpdate: 'turn_completed', stop_reason: 'cancelled' }, '_x.ai/session/update'),
 ])
+const gev = (s, type, extra = {}) => ({ ts: at(s), type, ...extra })
+write(join(gdir, 'events.jsonl'), [
+  gev(1, 'turn_started', { session_id: GROK_SESSION, turn_number: 0, model_id: 'grok-4.7' }),
+  gev(3, 'tool_started', { tool_name: 'read_file' }),
+  gev(3, 'permission_requested', { tool_name: 'read_file' }),
+  gev(3, 'permission_resolved', { tool_name: 'read_file', decision: 'allow', wait_ms: 0 }),
+  gev(4, 'tool_completed', { tool_name: 'read_file', outcome: 'success', tool_call_id: 'g1' }),
+  gev(10, 'turn_ended', { outcome: 'completed' }),
+])
+mkdirSync(gdir, { recursive: true })
+writeFileSync(join(gdir, 'summary.json'), JSON.stringify({ info: { id: GROK_SESSION, cwd: GROK_CWD }, session_summary: 'Check the spread filter', current_model_id: 'grok-4.7', session_kind: 'interactive' }))
+// A session folder without a stream is not a session the office can show
+write(join(HERE, 'grok', 'sessions', encodeURIComponent(GROK_CWD), '01a1e000-0000-7000-8000-000000000002', 'chat_history.jsonl'), [{ type: 'system', content: 'x' }])
 console.log('provider fixtures written')

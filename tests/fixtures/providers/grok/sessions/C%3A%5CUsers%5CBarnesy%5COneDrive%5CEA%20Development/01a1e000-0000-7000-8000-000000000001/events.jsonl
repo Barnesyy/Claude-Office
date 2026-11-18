@@ -1,0 +1,6 @@
+{"ts":"2026-11-18T02:00:01.000Z","type":"turn_started","session_id":"01a1e000-0000-7000-8000-000000000001","turn_number":0,"model_id":"grok-4.7"}
+{"ts":"2026-11-18T02:00:03.000Z","type":"tool_started","tool_name":"read_file"}
+{"ts":"2026-11-18T02:00:03.000Z","type":"permission_requested","tool_name":"read_file"}
+{"ts":"2026-11-18T02:00:03.000Z","type":"permission_resolved","tool_name":"read_file","decision":"allow","wait_ms":0}
+{"ts":"2026-11-18T02:00:04.000Z","type":"tool_completed","tool_name":"read_file","outcome":"success","tool_call_id":"g1"}
+{"ts":"2026-11-18T02:00:10.000Z","type":"turn_ended","outcome":"completed"}

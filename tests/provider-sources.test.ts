@@ -7,8 +7,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
-import { TranscriptWatcher, resolveTranscriptConfig, createJsConverter } from '../server/transcript-source.js'
-import { PROVIDERS, CodexAdapter, ChatAdapter, normaliseTool, commandText, patchFiles, readOutput, readCodexMeta, resolveProviderConfig } from '../server/provider-sources.js'
+import { TranscriptWatcher, TranscriptSession, resolveTranscriptConfig, createJsConverter } from '../server/transcript-source.js'
+import { PROVIDERS, CodexAdapter, GrokAdapter, GrokEventsAdapter, normaliseTool, commandText, patchFiles, readOutput, readCodexMeta, resolveProviderConfig } from '../server/provider-sources.js'
 import { providerOf, providerInfo } from '../src/providers'
 import { reduceOffice, initialOfficeState } from '../src/officeReducer'
 
@@ -130,30 +130,70 @@ describe('Codex', () => {
 })
 
 describe('Grok', () => {
-  it('adapts chat-completion rows and Claude rows alike', () => {
-    const a = new ChatAdapter()
-    const out = a.adapt([
-      { role: 'user', content: 'hi', timestamp: 1794967200 },
-      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'on it' }, { type: 'tool_use', id: 't1', name: 'bash', input: { command: 'ls' } }] } },
-      { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'a b' }] } },
-      { role: 'system', content: 'ignored' },
+  const G = 'grok-01a1e000-0000-7000-8000-000000000001'
+  const T = Date.parse('2026-11-18T02:00:00.000Z')
+  const upd = (ms: number, update: object) => ({ timestamp: Math.floor((T + ms) / 1000), method: 'session/update', params: { sessionId: 'x', update, _meta: { agentTimestampMs: T + ms } } })
+
+  it('finds a session by its stream, with the cwd from the folder name', () => {
+    const found = PROVIDERS.grok.scan({ dir: join(FIXTURES, 'grok', 'sessions'), scanDays: 36500 }, Date.now() + 1e9)
+    expect(found.map((f: any) => [f.sessionId, !!f.aux, f.cwd])).toEqual([
+      [G, false, 'C:\\Users\\Barnesy\\OneDrive\\EA Development'],
+      [G, true, 'C:\\Users\\Barnesy\\OneDrive\\EA Development'],
     ])
-    expect(out.map((r: any) => r.type)).toEqual(['user', 'assistant', 'user'])
-    expect(out[0].timestamp).toBe('2026-11-18T02:00:00.000Z')
-    expect(out[1].message.content[1]).toEqual({ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } })
   })
 
-  it('shows a session with its title, tools and a turn that ends when the reply goes quiet', async () => {
-    const { events } = await run('grok')
-    expect(events.every(e => e.provider === 'grok')).toBe(true)
-    expect(events[0]).toMatchObject({ type: 'session_started', sessionId: 'grok-grok-sess-0001', title: 'Check the spread filter' })
-    expect(events.filter(e => e.type === 'agent_working').map(e => e.status)).toEqual(['reading Filter.mqh', 'running: git status'])
-    expect(events.at(-1)).toMatchObject({ type: 'session_turn_end', text: 'The spread filter caps at 2.0 points.' })
+  it('joins the message chunks, names tools by kind when the name is new, and marks an MCP tool', () => {
+    const a = new GrokAdapter({})
+    const out: any[] = a.adapt([
+      upd(1000, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'one ' } }),
+      upd(1100, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'two' } }),
+      upd(1200, { sessionUpdate: 'tool_call', toolCallId: 'a', title: 'brand_new_reader', rawInput: {}, _meta: { 'x.ai/tool': { name: 'brand_new_reader', kind: 'read', namespace: 'grok_build' } } }),
+      upd(1300, { sessionUpdate: 'tool_call', toolCallId: 'b', title: 'run_backtest', rawInput: {}, _meta: { 'x.ai/tool': { name: 'run_backtest', kind: 'other', namespace: 'mt5_research' } } }),
+      upd(1400, { sessionUpdate: 'tool_call_update', toolCallId: 'a', kind: 'read' }),
+    ])
+    expect(out[0].message.content).toEqual([{ type: 'text', text: 'one two' }])
+    expect(out[0].timestamp).toBe('2026-11-18T02:00:01.200Z')
+    expect(out[1].message.content[0].name).toBe('Read')
+    expect(out[2].message.content[0].name).toBe('mcp__mt5_research__run_backtest')
+    expect(out).toHaveLength(3)
   })
 
-  it('keeps the turn open while the reply is fresh', async () => {
-    const { events } = await run('grok', {}, { settle: 2000 })
-    expect(events.some(e => e.type === 'session_turn_end')).toBe(false)
+  it('shows a session with its title, tools, a failed command and both turn ends', async () => {
+    const { events, payloads } = await run('grok')
+    expect(events.every(e => e.provider === 'grok' && e.sessionId === G)).toBe(true)
+    const started = events.filter(e => e.type === 'session_started')
+    expect(started[0]).toMatchObject({ project: 'EA Development' })
+    expect(started.at(-1)).toMatchObject({ title: 'Check the spread filter', model: 'grok-4.7' })
+    expect(events.filter(e => e.type === 'session_prompt').map(e => e.text)).toEqual(['Check the spread filter', 'Now run the tester'])
+    expect(payloads.filter(p => p.hook_event_name === 'PreToolUse').map(p => p.tool_name)).toEqual(['Read', 'Glob', 'Bash', 'Bash'])
+    expect(payloads.find(p => p.tool_use_id === 'g3' && p.hook_event_name === 'PostToolUseFailure')).toBeTruthy()
+    expect(payloads.find(p => p.tool_use_id === 'g4' && p.hook_event_name === 'PostToolUseFailure')).toBeTruthy()
+    expect(events.filter(e => e.type === 'session_turn_end').map(e => e.text)).toEqual(['The spread filter caps at 2.0 points.', '(interrupted)'])
+    // Every prompt in the replay was answered in the same instant: no hand
+    expect(events.some(e => e.type === 'session_needs_you')).toBe(false)
+  })
+
+  it('raises a hand only for a permission prompt that is still open', () => {
+    const e = new GrokEventsAdapter()
+    expect(e.adapt([
+      { ts: '2026-11-18T02:00:03.000Z', type: 'permission_requested', tool_name: 'read_file' },
+      { ts: '2026-11-18T02:00:03.000Z', type: 'permission_resolved', tool_name: 'read_file', decision: 'allow', wait_ms: 0 },
+    ])).toEqual([])
+    expect(e.adapt([{ ts: '2026-11-18T02:00:06.000Z', type: 'permission_requested', tool_name: 'run_terminal_command' }]))
+      .toEqual([{ type: 'x-permission', timestamp: '2026-11-18T02:00:06.000Z', toolName: 'Bash' }])
+
+    // …and the session turns it into a permission request for the call that waits
+    const s = new TranscriptSession({ sessionId: G, transcriptPath: 'updates.jsonl' })
+    const a = new GrokAdapter({ cwd: 'C:\\ea' })
+    s.mainRecords(a.adapt([
+      upd(1000, { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'go' } }),
+      upd(2000, { sessionUpdate: 'tool_call', toolCallId: 'c1', title: 'run_terminal_command', rawInput: { command: 'del x' }, _meta: { 'x.ai/tool': { name: 'run_terminal_command', kind: 'execute', namespace: 'grok_build' } } }),
+    ]))
+    const out = s.mainRecords([{ type: 'x-permission', timestamp: '2026-11-18T02:00:03.000Z', toolName: 'Bash' }])
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_use_id: 'c1', tool_input: { command: 'del x' } })
+    // Once per call
+    expect(s.mainRecords([{ type: 'x-permission', timestamp: '2026-11-18T02:00:04.000Z', toolName: 'Bash' }])).toEqual([])
   })
 })
 

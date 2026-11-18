@@ -96,7 +96,7 @@ their folders is written.
 | Tool | Reads | Status |
 | --- | --- | --- |
 | **Codex** (desktop app, IDE extension, CLI) | `%USERPROFILE%\.codex\sessions\YYYY\MM\DD\rollout-*.jsonl` | Built from Codex's published format (openai/codex). Covers threads, prompts, tool calls, worker threads, turn ends and interrupts. |
-| **Grok** (CLI) | `%USERPROFILE%\.grok\sessions\**\*.jsonl` | Best effort. Grok's format is not published, so the adapter accepts the common chat shapes. Not yet checked against a real Grok session. |
+| **Grok** (CLI) | `%USERPROFILE%\.grok\sessions\<folder>\<session id>\updates.jsonl`, with `events.jsonl` and `summary.json` beside it | Built from real Grok 4.7 sessions. Covers sessions, titles, prompts, tool calls, failed calls, turn ends, cancels and open permission prompts. |
 
 How it works:
 
@@ -109,9 +109,10 @@ How it works:
 
 What is different from Claude:
 
-- **Needs you** is never shown for Codex or Grok. Their approval dialogs are not written to the session file,
-  and a slow call is never guessed to be one (the guess was wrong 117 times in 6 hours on Claude, see above).
-- **Turn end:** Codex writes it down (`turn_complete`). For Grok it is inferred: a text reply with nothing after it for 8 s.
+- **Needs you:** Grok writes down when a permission prompt opens and when it is answered (`events.jsonl`), so its hand
+  goes up for a real prompt only. Codex does not write its approval dialogs down, and a slow call is never guessed
+  to be one (the guess was wrong 117 times in 6 hours on Claude, see above), so a Codex thread never shows needs-you.
+- **Turn end:** both write it down (Codex `turn_complete`, Grok `turn_completed`), so none is guessed.
 - **Meters** (cost, tokens, context) and the inspector's transcript tail are Claude only for now.
 - By default every Codex and Grok thread shows, whatever folder it runs in (a Codex thread may run in a worktree
   outside the listed projects). A thread inside a listed project still gets its label (`EA Dev · School Run`).

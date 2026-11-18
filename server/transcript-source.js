@@ -341,6 +341,19 @@ export class TranscriptSession {
     } else if (typeof r.cwd === 'string' && r.cwd && !this.cwd) this.cwd = r.cwd
     this.noteCwd(this.cwd)
     if (typeof r.permissionMode === 'string') this.permissionMode = r.permissionMode
+    // A provider that knows a permission prompt is open (server/provider-sources.js): the hand goes up for
+    // the newest unanswered call of that tool, else the newest unanswered call
+    if (r.type === 'x-permission') {
+      const open = [...this.pending.entries()].filter(([, c]) => !c.raised && c.name !== 'Agent' && c.name !== 'Task').reverse()
+      const hit = open.find(([, c]) => c.name === r.toolName) ?? open[0]
+      if (hit) {
+        const [id, c] = hit
+        c.raised = true
+        out.push(this.base({ hook_event_name: 'PermissionRequest', tool_name: c.name, tool_input: c.input, tool_use_id: id, permission_mode: 'default',
+          ...(c.agentId ? { agent_id: c.agentId, agent_type: c.agentType } : {}) }))
+      }
+      return out
+    }
 
     switch (r.type) {
       case 'summary':
@@ -984,6 +997,8 @@ export class TranscriptWatcher {
    */
   catchUp(entry, records, now) {
     const s = this.sessionFor(entry)
+    // A provider's side file (timings beside the session's own file) has no history worth replaying
+    if (entry.aux) { entry.wasOld = true; entry.learnTo = 0; return [] }
     if (!s.cwd) { const c = records.find(r => typeof r?.cwd === 'string' && r.cwd); if (c) { s.cwd = c.cwd; s.noteCwd(c.cwd) } }
     let lastT = -Infinity
     for (const r of records) { const t = Date.parse(r?.timestamp); if (Number.isFinite(t) && t > lastT) lastT = t }
@@ -1020,6 +1035,11 @@ export class TranscriptWatcher {
     if (!s.cwd) { const c = records.find(r => typeof r?.cwd === 'string' && r.cwd); if (c) { s.cwd = c.cwd; s.noteCwd(c.cwd) } }
     if (!this.wanted(entry.enc, s.homeCwd || s.cwd)) return
     const out = []
+    // A side file only speaks about a session that is on (it never starts or resumes one)
+    if (entry.aux) {
+      if (s.started && !s.ended) { s.mainRecords(records, out); this.emit(s, out) }
+      return
+    }
     if (entry.kind === 'main') {
       {
         if (entry.learnTo > 0) {
