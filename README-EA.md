@@ -87,6 +87,63 @@ The transcript watcher removes anything that would let the office answer a dialo
 - Environment variables override the config: `AGENT_OFFICE_TRANSCRIPTS_DIR`, `CLAUDE_CONFIG_DIR`, `AGENT_OFFICE_REGISTRY_DIR`, `AGENT_OFFICE_PYTHON`, `AGENT_OFFICE_PORT`, `AGENT_OFFICE_HOME`.
 - At start-up, a session active in the last `activeWindowMinutes` has its current turn rebuilt. Older ones join when they next write. A session silent for `idleEndMinutes`, and absent from the registry, ends.
 
+## Other agents: Codex and Grok
+
+The office is not only Claude's. The same watcher reads two more tools' session files and seats their
+threads in the same room (`server/provider-sources.js`). Nothing is installed into either tool and nothing in
+their folders is written.
+
+| Tool | Reads | Status |
+| --- | --- | --- |
+| **Codex** (desktop app, IDE extension, CLI) | `%USERPROFILE%\.codex\sessions\YYYY\MM\DD\rollout-*.jsonl` | Built from Codex's published format (openai/codex). Covers threads, prompts, tool calls, worker threads, turn ends and interrupts. |
+| **Grok** (CLI) | `%USERPROFILE%\.grok\sessions\**\*.jsonl` | Best effort. Grok's format is not published, so the adapter accepts the common chat shapes. Not yet checked against a real Grok session. |
+
+How it works:
+
+- Each tool's records are turned into Claude Code's transcript shape, then go down the unchanged pipeline.
+  So a Codex shell call that runs `terminal64.exe /config:…` lights the backtest station, a Codex edit of an
+  `.mq5` shows MetaEditor on the desk, and its turns, workers, commits and MT5 runs earn progression by the same rules.
+- Session ids carry the tool as a prefix (`codex-…`, `grok-…`), and the server keeps `provider` on the session.
+- In the room, a Codex or Grok thread is Claude's sprite with a tint (green for Codex, grey for Grok) and its
+  name on the tag under it. Its pill in the strip has a `Codex` or `Grok` chip, and its chat lines are signed with its name.
+
+What is different from Claude:
+
+- **Needs you** is never shown for Codex or Grok. Their approval dialogs are not written to the session file,
+  and a slow call is never guessed to be one (the guess was wrong 117 times in 6 hours on Claude, see above).
+- **Turn end:** Codex writes it down (`turn_complete`). For Grok it is inferred: a text reply with nothing after it for 8 s.
+- **Meters** (cost, tokens, context) and the inspector's transcript tail are Claude only for now.
+- By default every Codex and Grok thread shows, whatever folder it runs in (a Codex thread may run in a worktree
+  outside the listed projects). A thread inside a listed project still gets its label (`EA Dev · School Run`).
+
+Config (`office.config.json`, all optional):
+
+```json
+{
+  "providers": {
+    "codex": { "enabled": true, "dir": null, "onlyListed": false, "scanDays": 30 },
+    "grok": { "enabled": true, "dir": null, "onlyListed": false, "scanDays": 30 }
+  }
+}
+```
+
+- `enabled: false` turns a tool off. `dir` names another sessions folder. `onlyListed: true` hides threads outside the listed projects.
+- `scanDays`: only session files from the last 30 days are looked at.
+- Environment: `CODEX_HOME`, `GROK_HOME`, `AGENT_OFFICE_CODEX_DIR`, `AGENT_OFFICE_GROK_DIR`.
+- Watcher flags: `--no-providers`, `--codex-dir <path>`, `--grok-dir <path>`. A scratch run (`--dir` or
+  `AGENT_OFFICE_TRANSCRIPTS_DIR`) watches another tool only when its folder is named too.
+
+Demo (fixture sessions, not real ones):
+
+```bash
+AGENT_OFFICE_HOME=/tmp/ao AGENT_OFFICE_PORT=3434 node server/index.js
+AGENT_OFFICE_HOME=/tmp/ao AGENT_OFFICE_PORT=3434 node scripts/transcript-watch.mjs --once --from-start --dir /nonexistent \
+  --codex-dir tests/fixtures/providers/codex/sessions --grok-dir tests/fixtures/providers/grok/sessions
+```
+
+Adding another tool is one entry in `PROVIDERS`: a `scan` that finds its session files and an adapter that
+turns its records into `user` / `assistant` rows. Tests: `tests/provider-sources.test.ts`.
+
 ## Chat AI (optional, off)
 
 The chat panel's AI replies (`scripts/chat-ai-watcher.sh`, one `claude -p` per message) are off by default.

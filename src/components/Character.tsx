@@ -1,4 +1,5 @@
 import { currentSeason, useSeasonArt } from '../season'
+import { providerInfo } from '../providers'
 import { SANTA_HAT, halloweenPiece, hatKindOf, hatMirrored, hatOnHead, maskOnEyes, pieceTransform, spriteKey, useHeadAnchor, wearsOverlayHat, type HalloweenPiece } from '../hat'
 import { EYES } from '../eyes'
 import { HAT_FIT } from '../hatFit'
@@ -239,6 +240,9 @@ const Character: React.FC<CharacterProps> = ({ agent, idleDurationMs = 0, zIndex
   const stateLabel = needsYou
     ? `${needsYouShort(needsYou.kind)}${projectTag ? ` · ${projectTag}` : ''}`
     : mainState === 'error' ? `⚠ API error${projectTag ? ` · ${projectTag}` : ''}` : null
+  // Another tool's character (Codex, Grok): Claude's sprite, tinted, with its name on a chip
+  const tool = main ? providerInfo(agent.sessionId) : null
+  const foreign = tool && tool.id !== 'claude' ? tool : null
   const tooltip = [agent.name, projectTag, main && agent.statusText ? `— ${agent.statusText}` : null].filter(Boolean).join(' ')
 
   return (
@@ -252,6 +256,7 @@ const Character: React.FC<CharacterProps> = ({ agent, idleDurationMs = 0, zIndex
       }}
       title={projectTag || main ? tooltip : undefined}
       data-main-state={mainState}
+      data-provider={tool?.id}
     >
       {effectSrc && <EffectBubble src={effectSrc} alt={agent.state} />}
       {badge && <div className={`effect-bubble effect-emoji ${badge.cls}`} role="img" aria-label={agent.statusText}>{badge.text}</div>}
@@ -264,8 +269,11 @@ const Character: React.FC<CharacterProps> = ({ agent, idleDurationMs = 0, zIndex
       ) : scene?.kind === 'shipping' ? (
         // The label names what ships (the target, else the project), so it stands in for the project tag
         <div className="char-scene">{scene.label ?? '🚀 shipping'}</div>
-      ) : projectTag && (
-        <div className="char-project">{projectTag}</div>
+      ) : (projectTag || foreign) && (
+        <div className="char-project">
+          {foreign && <span className="char-provider" style={{ color: foreign.color }}>{foreign.name}</span>}
+          {foreign && projectTag ? ' · ' : ''}{projectTag}
+        </div>
       )}
 
       {/* Only one that needs a desk says so; the lounge is a fine place to sit between turns */}
@@ -303,7 +311,7 @@ const Character: React.FC<CharacterProps> = ({ agent, idleDurationMs = 0, zIndex
             style={{
               height: agent.id.startsWith('boss-') ? 85 : 78,
               width: 'auto',
-              filter: `drop-shadow(0 0 1px ${agent.color}) drop-shadow(0 0 0.5px #000)`,
+              filter: `${foreign?.tint ? `${foreign.tint} ` : ''}drop-shadow(0 0 1px ${foreign?.color ?? agent.color}) drop-shadow(0 0 0.5px #000)`,
             }}
             draggable={false}
           />

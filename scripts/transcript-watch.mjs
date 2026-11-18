@@ -12,6 +12,8 @@
  *   node scripts/transcript-watch.mjs --js            built-in converter even when Python is there
  *   node scripts/transcript-watch.mjs --no-progression  don't send progression facts (commits, PR merges,
  *                                                     MT5 runs, lessons) to POST /progression/facts
+ *   node scripts/transcript-watch.mjs --no-providers  Claude Code only (no Codex, no Grok)
+ *   node scripts/transcript-watch.mjs --codex-dir <path> / --grok-dir <path>   another sessions folder for that tool
  *   node scripts/transcript-watch.mjs --registry-any-pid   trust every registry file, live pid or not
  *                                                     (replaying another machine's ~/.claude/sessions)
  *
@@ -26,6 +28,7 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { TranscriptWatcher, resolveTranscriptConfig, createConverter, payloadTime } from '../server/transcript-source.js'
 import { readOfficeConfig, readPort } from '../server/config.js'
+import { PROVIDERS, resolveProviderConfig } from '../server/provider-sources.js'
 import { FactExtractor } from '../server/progression-facts.js'
 import { isEaRelevant, slimPayload } from '../server/ea-scenes.js'
 
@@ -128,7 +131,7 @@ function onProgressionPayload(p) {
   if (!facts.length) return
   if (dryRun) { for (const f of facts) process.stdout.write(JSON.stringify({ progression: f }) + '\n'); return }
   // In order, after the events of the same payload had their turn
-  factQueue = factQueue.then(() => watcher.flush()).then(() => postFacts(facts)).catch(() => {})
+  factQueue = factQueue.then(() => flushAll()).then(() => postFacts(facts)).catch(() => {})
 }
 
 // One payload tap feeds both layers; one failing never stops the other
@@ -140,28 +143,48 @@ function onPayload(p) {
 const watcher = new TranscriptWatcher({ config, converter, sink, fromStart: flag('--from-start'), onPayload,
   ...(flag('--registry-any-pid') ? { alive: () => true } : {}) })
 
+// The other tools (server/provider-sources.js): Codex and Grok sessions join the same office through the same
+// converter, sink and taps. A scratch run (--dir or AGENT_OFFICE_TRANSCRIPTS_DIR: tests, demos, replays) watches
+// another tool only when its folder is named too, so a replay never picks up this machine's real sessions.
+const scratch = !!value('--dir') || !!process.env.AGENT_OFFICE_TRANSCRIPTS_DIR
+const providerWatchers = []
+if (!flag('--no-providers')) {
+  for (const id of Object.keys(PROVIDERS)) {
+    const named = value(`--${id}-dir`) || process.env[`AGENT_OFFICE_${id.toUpperCase()}_DIR`]
+    if (scratch && !named) continue
+    const pconfig = resolveProviderConfig(id, officeConfig, config)
+    if (!pconfig) continue
+    if (named) pconfig.dir = named
+    if (flag('--all-projects')) pconfig.onlyListed = false
+    providerWatchers.push(new TranscriptWatcher({ config: pconfig, converter, sink, fromStart: flag('--from-start'), onPayload, provider: PROVIDERS[id] }))
+  }
+}
+const watchers = [watcher, ...providerWatchers]
+function flushAll() { return Promise.all(watchers.map(w => w.flush())) }
+
 const pidFile = join(RUNTIME_DIR, 'transcript-watch.pid')
 function cleanup() {
-  watcher.stop()
+  for (const w of watchers) w.stop()
   converter.close()
   if (!dryRun && !once) try { if (readFileSync(pidFile, 'utf8').trim() === String(process.pid)) unlinkSync(pidFile) } catch {}
 }
 
 console.error(`[transcripts] watching ${config.dir} (${converter.kind} converter${config.onlyListed ? `, only ${config.projects.map(p => p.name).join(', ')}` : ''})${dryRun ? ' [dry run]' : ` -> ${EVENT_URL}`}`)
+for (const w of providerWatchers) console.error(`[transcripts] watching ${w.config.dir} (${w.provider.name})`)
 
 if (once) {
-  watcher.tick()
-  await watcher.flush()
+  for (const w of watchers) w.tick()
+  await flushAll()
   await flushEa()
   await factQueue
   // Let the quiet checks see the files settle (turn ends, permission waits)
   await sleep(50)
   cleanup()
-  console.error(`[transcripts] done: ${watcher.stats.payloads} payloads, ${watcher.stats.events} events`)
+  console.error(`[transcripts] done: ${watchers.reduce((n, w) => n + w.stats.payloads, 0)} payloads, ${watchers.reduce((n, w) => n + w.stats.events, 0)} events`)
   process.exit(0)
 } else {
   if (!dryRun) { try { mkdirSync(RUNTIME_DIR, { recursive: true }); writeFileSync(pidFile, String(process.pid)) } catch {} }
-  watcher.start()
+  for (const w of watchers) w.start()
   // Why: the watcher's poll timer is unref'd (it also runs inside tests); with
   // the built-in converter nothing else would keep this process alive
   setInterval(() => {}, 1 << 30)

@@ -11,5 +11,19 @@
     "idleEndMinutes": 45,
     "permissionGraceSeconds": 6,
     "bashPermissionGraceSeconds": 15
+  },
+  "providers": {
+    "codex": {
+      "enabled": true,
+      "dir": null,
+      "onlyListed": false,
+      "scanDays": 30
+    },
+    "grok": {
+      "enabled": true,
+      "dir": null,
+      "onlyListed": false,
+      "scanDays": 30
+    }
   }
 }

@@ -44,6 +44,7 @@
  */
 
 import { Agent, AgentScene, OfficeEvent, Position, SignalEvent, SnapshotAgent, ServerHealth, SessionInfo, SessionMain, MainState, NeedsYou, AGENT_CONFIGS } from './types'
+import { providerInfo } from './providers'
 import { ROOMS, AgentSpot, HUB_ROOM, OFFICE_ROOM, getFreeSpot, type RoomId } from './rooms'
 import {
   beginTransfer, stepTransfer, settleTransfer, planRoomMoves, heldSpotIds, roomOf, inOffice,
@@ -797,8 +798,11 @@ function mainCount(state: OfficeState): number {
 /** A chat line from a session's Claude; "Claude · <project>" once several terminals are open */
 function claudeMsg(state: OfficeState, claude: Agent, text: string, tag?: 'prompt' | 'reply'): OfficeEffect {
   const cfg = cfgFor(CLAUDE_ROLE)
-  const sender = mainCount(state) > 1 && claude.project ? `${cfg.title} · ${claude.project}` : cfg.title
-  return { kind: 'msg', sender, role: CLAUDE_ROLE, color: cfg.color, text, agentId: claude.id, ...(tag ? { tag } : {}) }
+  // Another tool's character speaks under its own name and colour (src/providers.ts)
+  const tool = providerInfo(claude.sessionId)
+  const who = tool.id === 'claude' ? cfg.title : tool.name
+  const sender = mainCount(state) > 1 && claude.project ? `${who} · ${claude.project}` : who
+  return { kind: 'msg', sender, role: CLAUDE_ROLE, color: tool.id === 'claude' ? cfg.color : tool.color, text, agentId: claude.id, ...(tag ? { tag } : {}) }
 }
 
 interface MainPatch {
@@ -909,9 +913,10 @@ function ensureClaude(state: OfficeState, sessionId: string, info: SessionFields
   }
   const project = info.project ?? projectFromCwd(info.cwd)
   const cfg = cfgFor(CLAUDE_ROLE)
+  const tool = providerInfo(sessionId)
   const r = spawnAgent(cur, {
-    id, name: cfg.title, role: CLAUDE_ROLE,
-    task: project ? `Claude Code · ${project}` : 'Claude Code',
+    id, name: tool.id === 'claude' ? cfg.title : tool.name, role: CLAUDE_ROLE,
+    task: project ? `${tool.app} · ${project}` : tool.app,
     statusText: 'clocked in',
     sessionId, project, model: info.model,
     preferredSpotId: CLAUDE_HOME_SPOT,
@@ -919,7 +924,7 @@ function ensureClaude(state: OfficeState, sessionId: string, info: SessionFields
   let next = r.state
   if (info.main) next = applyMain(next, id, fromServerMain(info.main), env)
   const claude = next.agents.find(a => a.id === id)!
-  const effects: OfficeEffect[] = [...r.effects, claudeMsg(next, claude, `🤖 clocked in${project ? ` · ${project}` : ''}`)]
+  const effects: OfficeEffect[] = [...r.effects, claudeMsg(next, claude, `${tool.emoji} clocked in${project ? ` · ${project}` : ''}`)]
   return { state: next, effects, created: true }
 }
 
