@@ -40,7 +40,8 @@ export interface Track {
   tiers: { tier: Tier; threshold: number; earned: boolean; at: number | null }[]
 }
 
-export interface Unlock { id: string; title: string; detail: string; hint: string; rare: boolean; unlocked: boolean; at: number | null }
+/** A piece for the office: bought with the firm's cash (`price`), or a rare one that is earned */
+export interface Unlock { id: string; title: string; detail: string; hint: string; rare: boolean; unlocked: boolean; at: number | null; price?: number; category?: string }
 export interface Milestone { id: string; title: string; detail: string; earned: boolean; at: number | null }
 export interface Lesson { id: number; label: string; fails: number; ms: number; at: number; date: string }
 export interface Plant { key: string; repo: string | null; pr: number | null; seed: number; at: number }
@@ -53,6 +54,10 @@ export interface ProgressionTotals {
   nextLevelXp: number
   todayXp: number
   streak: number
+  /** The firm's money: in the account now, earned in all, earned today */
+  cash?: number
+  cashEarned?: number
+  todayCash?: number
 }
 
 export interface ProgressionSnapshot extends ProgressionTotals {
@@ -67,6 +72,8 @@ export interface ProgressionSnapshot extends ProgressionTotals {
   shipped: number
   equity: { high: number | null; at?: number; readings: number }
   recent: { at: number; kind: string; xp: number; label: string | null }[]
+  /** The firm's ledger, newest first: money in (amount > 0) and purchases (amount < 0) */
+  ledger?: { at: number; kind: string; amount: number; label: string | null }[]
 }
 
 export interface DayReport {
@@ -95,7 +102,7 @@ export interface QuarterReport {
 }
 
 export type ProgressionEvent =
-  | ({ type: 'progression_update'; gain?: { kind: string; xp: number; label?: string }; timestamp?: number } & Partial<ProgressionTotals>)
+  | ({ type: 'progression_update'; gain?: { kind: string; xp: number; cash?: number; label?: string }; timestamp?: number } & Partial<ProgressionTotals>)
   | { type: 'progression_award'; award: Award; timestamp?: number }
   | { type: 'progression_reset'; timestamp?: number }
   | { type: 'progression_settings'; enabled: boolean; timestamp?: number }
@@ -109,7 +116,7 @@ export interface ProgressionState {
   /** An unlock playing its reveal: the dust sheet lifts, stars burst */
   reveals: { id: string; at: number }[]
   /** The last XP gain, for the +XP float over the cabinet */
-  lastGain: { kind: string; xp: number; label?: string; at: number } | null
+  lastGain: { kind: string; xp: number; cash?: number; label?: string; at: number } | null
   panel: PanelTab | null
   /** Awards newer than this have not been seen in the panel (the mailbox flag) */
   seenAt: number
@@ -146,13 +153,13 @@ export function applyProgressionEvent(s: ProgressionState, e: ProgressionEvent, 
     case 'progression_update': {
       const snap = s.snapshot
       const totals: Partial<ProgressionTotals> = {}
-      for (const k of ['xp', 'level', 'title', 'levelFloor', 'nextLevelXp', 'todayXp', 'streak'] as const) {
+      for (const k of ['xp', 'level', 'title', 'levelFloor', 'nextLevelXp', 'todayXp', 'streak', 'cash', 'cashEarned', 'todayCash'] as const) {
         if (e[k] !== undefined) (totals as Record<string, unknown>)[k] = e[k]
       }
       return {
         ...s,
         snapshot: snap ? { ...snap, ...totals, counts: e.gain ? { ...snap.counts, [e.gain.kind]: (snap.counts[e.gain.kind] ?? 0) + 1 } : snap.counts } : snap,
-        lastGain: e.gain && e.gain.xp > 0 ? { ...e.gain, at: now } : s.lastGain,
+        lastGain: e.gain && (e.gain.xp > 0 || (e.gain.cash ?? 0) > 0) ? { ...e.gain, at: now } : s.lastGain,
       }
     }
     case 'progression_award': {
@@ -251,6 +258,43 @@ async function postUi(path: string, body: unknown): Promise<boolean> {
     })
     return res.ok
   } catch { return false }
+}
+
+/** Buy a piece for the office with the firm's cash. Resolves to null when bought, else why not. */
+export async function buyUnlock(id: string): Promise<string | null> {
+  if (onPhoneFullPage()) return 'Not from this page'
+  const token = getUiToken()
+  if (!token) return 'Open the office from its own link to buy'
+  try {
+    const res = await fetch(`${officeHttpBase()}/progression/buy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ id }),
+      signal: AbortSignal.timeout(5000),
+    })
+    const body = await res.json().catch(() => ({}))
+    await loadProgression(true)
+    return res.ok ? null : String(body?.error ?? 'Could not buy it')
+  } catch { return 'The office server did not answer' }
+}
+
+/** "$1,250" */
+export function money(n: number | undefined | null): string {
+  const v = Math.round(n ?? 0)
+  return `${v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString('en-US')}`
+}
+
+/** The pieces for sale, in shop order by category (rare ones are not for sale). */
+export function shopShelves(unlocks: Unlock[]): { category: string; items: Unlock[] }[] {
+  const out: { category: string; items: Unlock[] }[] = []
+  for (const u of unlocks) {
+    if (u.rare || !u.price) continue
+    const cat = u.category ?? 'Other'
+    let shelf = out.find(s => s.category === cat)
+    if (!shelf) { shelf = { category: cat, items: [] }; out.push(shelf) }
+    shelf.items.push(u)
+  }
+  return out
 }
 
 export async function setProgressionEnabled(on: boolean): Promise<boolean> {

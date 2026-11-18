@@ -4029,6 +4029,8 @@ const ea = mountEaScenes({
   requireToken,
   requireUi,
   stateDir: RUNTIME_DIR,
+  // A finished tester run's numbers, for the firm's books (a breakthrough pays)
+  onResult: r => { try { progression.noteResult(r) } catch (err) { console.warn(`[progression] result: ${err?.message ?? err}`) } },
   isTrusted: req => tokenMatches(bearerToken(req)),
   broadcast: payload => broadcast(payload),
   resolve: (sessionId, agentId) => (agentId ? lookupAgentId(agentId) : sessionId ? mainActivityId(sessionId) : null),

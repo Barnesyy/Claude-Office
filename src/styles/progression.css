@@ -301,3 +301,18 @@
 .prog-plate.prog-bay-plate { transform: skewY(-26.5deg); }
 .prog-plate.prog-equity-plate { transform: skewY(23deg); }
 .prog-plate.prog-equity-plate.locked { opacity: 0.75; filter: grayscale(0.6); }
+
+/* The firm's money and the shop */
+.pp-cash { color: #7fd48a; }
+.pp-spent { color: #d98a7a; }
+.pp-xp.pp-cash, .pp-xp.pp-spent { min-width: 52px; }
+.pp-balance { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 8px; margin-bottom: 4px; border: 1px solid rgba(127, 212, 138, 0.25); border-radius: 6px; background: rgba(127, 212, 138, 0.06); }
+.pp-balance b { font-size: 15px; }
+.pp-shop li { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: nowrap; }
+.pp-shop-what { min-width: 0; }
+.pp-shop li.owned { opacity: 0.6; }
+.pp-owned { font-size: 10px; color: #7fd48a; white-space: nowrap; }
+.pp-buy { font: inherit; font-size: 11px; padding: 2px 9px; border-radius: 5px; border: 1px solid rgba(127, 212, 138, 0.6); background: rgba(127, 212, 138, 0.14); color: #a6e6ae; cursor: pointer; white-space: nowrap; }
+.pp-buy:hover:not(:disabled) { background: rgba(127, 212, 138, 0.28); }
+.pp-buy:disabled { opacity: 0.4; cursor: default; border-color: rgba(255, 255, 255, 0.2); background: none; color: inherit; }
+.pp-error { color: #e0a090; }

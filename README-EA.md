@@ -198,7 +198,7 @@ npx vite build
 - The fork's own tests are `tests/transcript-source.test.ts` (fixtures, labels, permission inference, the Python bridge) and `tests/transcript-e2e.test.ts` (watcher → `/event` → WebSocket, event taps, registry focus).
 - A full run deletes `build/icon.png` (an upstream test quirk). Restore it with `git checkout build/icon.png`.
 
-## Progression (XP, trophies, unlocks)
+## Progression (cash, XP, trophies, shop)
 
 The office levels up from real work only. Each source:
 
@@ -227,26 +227,51 @@ Anti-farming:
 - Replays are deduped by id.
 - Failures earn 0 XP.
 
-The rules live in `server/progression.js` (`XP_BASE`, `TRACKS`, `MILESTONES`, `UNLOCKS`). The store is SQLite tables
+The rules live in `server/progression.js` (`XP_BASE`, `CASH_BASE`, `TRACKS`, `MILESTONES`, `UNLOCKS`). The store is SQLite tables
 `progression_*` in `chat.db`. Broadcasts are `progression_update`, `progression_award`, `progression_reset` and
 `progression_settings`.
 
-In the room:
+### The firm: cash and the shop
 
-- trophy cabinet with an XP bar and level plate
-- mailbox (flag up while there are unseen awards)
-- lessons binder
-- Shipped bin (a parcel per merged PR or deploy)
-- window-box garden (a plant per merged PR)
-- backtest bay: the EA backtest station's crash cart, with an `MT5 runs · WF` plate (see EA scenes)
-- equity wall: a `DEMO HIGH` plate under the wall dashboard, from your MT5 account report
-- money tree (level 5)
+The office is a trading firm. It earns cash, and the cash buys what stands in the room.
+Nothing is in the room until it is bought: no dust sheets, no padlocks, just a bare office.
 
-Locked furniture stands under a dust sheet with a padlock. On unlock, the sheet lifts with a star burst.
-The four rare unlocks show as `???` until earned.
+Cash comes in from three places (`CASH_BASE`, `BREAKTHROUGH`, `PROFIT_SHARE` in `server/progression.js`):
 
-The level button in the status strip opens the panel. Its tabs are Office, Trophies, Unlocks, Lessons, Today
-and Quarter.
+- **Work.** Every fact that earns XP also pays, with the same anti-farming rules. Per first one of the day:
+  turn $5, worker $10, tests pass $10, build $5, EA compile $15, commit $20, push $20, lesson $80,
+  MT5 run $60, tester report $30, deploy $100, PR merge $150, walk-forward $250.
+- **Breakthroughs.** When a finished tester report beats the best one so far for the same expert, symbol and
+  period, the firm gets a $400 bonus. The score is net profit over max drawdown. It needs at least 30 trades
+  and a 2% improvement, the first report only sets the baseline, and at most 3 are paid a day.
+- **Account profits.** Each new equity high on a watched MT5 account pays a share of the gain: 10% on a demo
+  account, 50% on a live one. The first reading is only the baseline, and a drawdown costs nothing.
+  An account counts as live when its login is listed in `progression.liveAccounts`:
+
+  ```json
+  { "progression": { "liveAccounts": ["12345678"] } }
+  ```
+
+The shop is the Shop tab of the panel (the level button in the status strip). Buying needs the office's own
+link (`npm run open`); a plain `127.0.0.1` tab and a phone are read-only.
+
+| Piece | Price | What it does |
+| --- | --- | --- |
+| Trophy cabinet | $250 | trophies, XP bar and level plate |
+| Mailbox | $400 | flag up while there are unseen awards |
+| Lessons binder | $600 | every fail-then-fix, filed |
+| Shipped bin | $900 | a parcel per merged PR or deploy |
+| Backtest bay | $1,500 | crash cart at the rack with an `MT5 runs · WF` plate (see EA scenes) |
+| Equity plate | $2,000 | `DEMO HIGH` plate under the wall dashboard |
+| Window garden | $2,500 | a plant per merged PR |
+| Money tree | $5,000 | it looks like it might grow money |
+
+The four rare finds are earned, not bought, and show as `???` until then.
+The Shop tab also lists the last money in and out (table `progression_ledger`).
+Anything unlocked under the old level rules stays in the room; a reset in Settings empties it.
+
+The level button in the status strip shows the balance and opens the panel. Its tabs are Firm, Shop, Trophies,
+Lessons, Today and Quarter.
 
 Settings → Progression turns it on or off and resets it (UI token).
 Progression is loopback only: a LAN phone shows none of it.
@@ -254,7 +279,7 @@ Progression is loopback only: a LAN phone shows none of it.
 ## One room: how progression and the EA scenes share it
 
 - **One backtest station.** The EA station (rack + crash cart, left wall) is the only one. The rack and its card always show, so a live run is never hidden.
-  With progression on, the cart is the "Backtest bay" unlock: it stands under a dust sheet until your first MT5 tester run, then gets its run-count plate.
+  With progression on, the cart is the "Backtest bay" shop piece: the spot is empty until you buy it, then it carries its run-count plate.
 - **One equity display.** The whiteboard's EQ mode (the latest tester report's balance curve). The "Equity wall" unlock adds only a brass `DEMO HIGH` plate under the wall dashboard, from a real demo account report.
 - **Moved to make room:** Shipped bin and money tree to the front right, the window-box garden along the window past the tick cabinets.
   `tests/integrate-layout.test.ts` checks nothing piles up.

@@ -10,8 +10,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import Database from 'better-sqlite3'
 import {
   createProgression, xpFor, levelFloor, levelOf, levelTitle, XP_BASE, DAILY_CAP_FACTOR, REPEAT_MS, quarterOf, isQuarter,
-  SIGNAL_LESSON_WAIT_MS,
-} from '../server/progression.js'
+  SIGNAL_LESSON_WAIT_MS, CASH_BASE, cashFor, BREAKTHROUGH, PROFIT_SHARE } from '../server/progression.js'
 
 type Sent = { type: string; [k: string]: any }
 
@@ -70,11 +69,11 @@ describe('createProgression: events from the office', () => {
   let t: ReturnType<typeof fresh>
   beforeEach(() => { t = fresh() })
 
-  it('starts at level 1 with the trophy cabinet open and nothing else', () => {
+  it('starts at level 1 with no money and a bare office', () => {
     const s = t.p.snapshot()
-    expect(s).toMatchObject({ enabled: true, xp: 0, level: 1, streak: 0 })
-    expect(s.unlocks.find((u: any) => u.id === 'trophy-cabinet').unlocked).toBe(true)
-    expect(s.unlocks.filter((u: any) => u.unlocked)).toHaveLength(1)
+    expect(s).toMatchObject({ enabled: true, xp: 0, level: 1, streak: 0, cash: 0, cashEarned: 0 })
+    expect(s.unlocks.filter((u: any) => u.unlocked)).toHaveLength(0)
+    expect(s.unlocks.find((u: any) => u.id === 'trophy-cabinet')).toMatchObject({ price: 250, category: 'Furniture' })
   })
 
   it('a finished turn earns XP once, however often it is replayed', () => {
@@ -153,7 +152,8 @@ describe('createProgression: events from the office', () => {
     t.tick(SIGNAL_LESSON_WAIT_MS); t.runDeferred()
     const s = t.p.snapshot()
     expect(s.lessons).toEqual([expect.objectContaining({ label: 'tests', fails: 1, ms: 30_000 })])
-    expect(s.unlocks.find((u: any) => u.id === 'lessons-binder').unlocked).toBe(true)
+    // Furniture is bought, never handed out
+    expect(s.unlocks.find((u: any) => u.id === 'lessons-binder').unlocked).toBe(false)
   })
 
   it('a watcher fact right after the green signal stands the signal lesson down (no double lesson)', () => {
@@ -177,7 +177,7 @@ describe('createProgression: facts from the transcript watcher', () => {
     expect(t.p.snapshot().xp).toBe(0)
   })
 
-  it('a commit, a push and a merged PR: XP, a parcel, a plant, the bin and garden unlock', () => {
+  it('a commit, a push and a merged PR: XP, cash, a parcel and a plant', () => {
     t.p.noteFact({ kind: 'commit', id: 'c1:commit', label: 'git commit', sessionId: S })
     t.p.noteFact({ kind: 'push', id: 'c2:push', label: 'git push', sessionId: S })
     t.p.noteFact({ kind: 'pr_merge', id: 'c3:pr_merge', pr: 42, repo: 'Barnesyy/school-run', sessionId: S })
@@ -186,8 +186,8 @@ describe('createProgression: facts from the transcript watcher', () => {
     expect(s.xp).toBe(XP_BASE.commit + XP_BASE.push + XP_BASE.pr_merge)
     expect(s.shipped).toBe(1)
     expect(s.garden.plants).toEqual([expect.objectContaining({ key: 'Barnesyy/school-run#42', pr: 42 })])
-    const on = s.unlocks.filter((u: any) => u.unlocked).map((u: any) => u.id)
-    expect(on).toEqual(expect.arrayContaining(['shipped-bin', 'rooftop-garden']))
+    expect(s.cash).toBe(CASH_BASE.commit + CASH_BASE.push + CASH_BASE.pr_merge)
+    expect(s.unlocks.filter((u: any) => u.unlocked)).toEqual([])
   })
 
   it('an MT5 tester run: the run, its report, and walk-forward each count', () => {
@@ -196,7 +196,7 @@ describe('createProgression: facts from the transcript watcher', () => {
     expect(s.counts).toMatchObject({ mt5_run: 1, mt5_report: 1, walk_forward: 1 })
     expect(s.xp).toBe(XP_BASE.mt5_run + XP_BASE.mt5_report + XP_BASE.walk_forward)
     expect(s.tracks.find((x: any) => x.id === 'walkforward').tiers[0].earned).toBe(true)
-    expect(s.unlocks.find((u: any) => u.id === 'backtest-bay').unlocked).toBe(true)
+    expect(s.cash).toBe(CASH_BASE.mt5_run + CASH_BASE.mt5_report + CASH_BASE.walk_forward)
   })
 
   it('a plain backtest is not walk-forward and a run without a fresh report is not a report', () => {
@@ -240,10 +240,11 @@ describe('demo equity', () => {
     const t = fresh()
     expect(t.p.noteEquity([{ equity: 10000, login: '123', mtimeMs: 1 }])).toEqual({ baseline: true, equity: 10000 })
     expect(t.p.snapshot().counts.equity_high).toBe(0)
-    expect(t.p.snapshot().unlocks.find((u: any) => u.id === 'equity-wall').unlocked).toBe(true)
     expect(t.p.noteEquity([{ equity: 10000, login: '123', mtimeMs: 1 }])).toBeNull()
     expect(t.p.noteEquity([{ equity: 9900, login: '123', mtimeMs: 2 }])).toEqual({ equity: 9900 })
-    expect(t.p.noteEquity([{ equity: 10250.5, login: '123', mtimeMs: 3 }])).toEqual({ high: true, equity: 10250.5 })
+    // 10% of the 250.50 above the old high is the firm's cut
+    expect(t.p.noteEquity([{ equity: 10250.5, login: '123', mtimeMs: 3 }])).toEqual({ high: true, equity: 10250.5, share: 25 })
+    expect(t.p.snapshot().cash).toBe(25)
     const s = t.p.snapshot()
     expect(s.counts.equity_high).toBe(1)
     expect(s.equity).toMatchObject({ high: 10250.5, readings: 3 })
@@ -277,7 +278,8 @@ describe('on/off, reset, day and quarter', () => {
     const s = t.p.snapshot()
     expect(s).toMatchObject({ xp: 0, level: 1, shipped: 0, lessons: [], enabled: true })
     expect(s.garden.plants).toEqual([])
-    expect(s.unlocks.filter((u: any) => u.unlocked).map((u: any) => u.id)).toEqual(['trophy-cabinet'])
+    expect(s.unlocks.filter((u: any) => u.unlocked)).toEqual([])
+    expect(s).toMatchObject({ cash: 0, cashEarned: 0, ledger: [] })
     expect(t.sent.some(m => m.type === 'progression_reset')).toBe(true)
     // the replayed fact counts again after a reset (its seen key went too)
     t.p.noteFact({ kind: 'pr_merge', id: 'p', pr: 1, repo: 'a/b' })
@@ -325,5 +327,85 @@ describe('on/off, reset, day and quarter', () => {
     const lv = t.p.snapshot().awards.filter((a: any) => a.type === 'level')
     expect(lv.length).toBe(t.p.snapshot().level - 1)
     expect(new Set(lv.map((a: any) => a.id)).size).toBe(lv.length)
+  })
+})
+
+describe('the firm\'s money', () => {
+  it('cash follows XP: the same diminishing returns, and nothing for a kind that earns none', () => {
+    expect(cashFor('mt5_run', XP_BASE.mt5_run)).toBe(CASH_BASE.mt5_run)
+    expect(cashFor('mt5_run', Math.round(XP_BASE.mt5_run / 2))).toBeLessThan(CASH_BASE.mt5_run)
+    expect(cashFor('mt5_run', 0)).toBe(0)
+    expect(cashFor('test_fail', 5)).toBe(0)
+  })
+
+  it('a replayed or failed event pays nothing, and every payment is on the ledger', () => {
+    const t = fresh()
+    t.p.noteFact({ kind: 'commit', id: 'c1', label: 'git commit', sessionId: S })
+    t.p.noteFact({ kind: 'commit', id: 'c1', label: 'git commit', sessionId: S })
+    t.p.noteFact({ kind: 'test', ok: false, id: 't1', sessionId: S })
+    const s = t.p.snapshot()
+    expect(s.cash).toBe(CASH_BASE.commit)
+    expect(s.ledger).toEqual([expect.objectContaining({ kind: 'commit', amount: CASH_BASE.commit })])
+    expect(t.sent.find(m => m.type === 'progression_update' && m.gain)?.gain).toMatchObject({ kind: 'commit', cash: CASH_BASE.commit })
+  })
+
+  it('buying: not without the money, once only, and the piece is then in the office', () => {
+    const t = fresh()
+    expect(t.p.buy('mailbox')).toEqual({ ok: false, error: 'needs 400 more' })
+    expect(t.p.buy('golden-bull')).toEqual({ ok: false, error: 'not for sale' })
+    expect(t.p.buy('nope')).toEqual({ ok: false, error: 'not for sale' })
+    // Three merged PRs: 150 + 111 + 88 (diminishing) and a walk-forward run
+    for (let i = 0; i < 3; i++) t.p.noteFact({ kind: 'pr_merge', id: `p${i}`, pr: i, repo: 'a/b' })
+    t.p.noteFact({ kind: 'mt5_run', id: 'm1', walkForward: true, report: true, sessionId: S })
+    const before = t.p.snapshot().cash
+    expect(before).toBeGreaterThan(400)
+    expect(t.p.buy('mailbox')).toEqual({ ok: true, cash: before - 400 })
+    const s = t.p.snapshot()
+    expect(s.unlocks.find((u: any) => u.id === 'mailbox').unlocked).toBe(true)
+    expect(s.cash).toBe(before - 400)
+    expect(s.cashEarned).toBe(before)
+    expect(s.ledger[0]).toMatchObject({ kind: 'purchase', amount: -400, label: 'Mailbox' })
+    expect(t.sent.some(m => m.type === 'progression_award' && m.award.id === 'unlock:mailbox')).toBe(true)
+    expect(t.p.buy('mailbox')).toEqual({ ok: false, error: 'already bought' })
+    expect(t.p.snapshot().cash).toBe(before - 400)
+  })
+
+  it('a breakthrough: the first result is the baseline, a clearly better one pays, a worse or thin one does not', () => {
+    const t = fresh()
+    const r = (net: number, dd: number, trades = 120) => ({ expert: 'Experts\\SchoolRun.ex5', symbol: 'GER40', period: 'M5', netProfit: net, maxDrawdown: dd, trades })
+    expect(t.p.noteResult(r(1000, 500))).toMatchObject({ baseline: true })
+    expect(t.p.noteResult(r(1005, 500))).toMatchObject({ breakthrough: false })
+    expect(t.p.noteResult(r(900, 500))).toMatchObject({ breakthrough: false })
+    expect(t.p.noteResult(r(5000, 500, 5))).toBeNull()
+    expect(t.p.noteResult(r(-200, 500))).toBeNull()
+    expect(t.p.noteResult(r(1500, 500))).toMatchObject({ breakthrough: true, cash: BREAKTHROUGH.bonus })
+    const s = t.p.snapshot()
+    expect(s.counts.breakthrough).toBe(1)
+    expect(s.cash).toBe(BREAKTHROUGH.bonus)
+    expect(s.ledger[0]).toMatchObject({ kind: 'breakthrough', label: 'breakthrough: SchoolRun GER40' })
+    // Another symbol has its own baseline
+    expect(t.p.noteResult({ ...r(9000, 100), symbol: 'US100' })).toMatchObject({ baseline: true })
+  })
+
+  it('only the first few breakthroughs of a day pay; the rest still count', () => {
+    const t = fresh()
+    const r = (net: number) => ({ expert: 'EA', symbol: 'X', period: 'H1', netProfit: net, maxDrawdown: 100, trades: 50 })
+    t.p.noteResult(r(100))
+    for (let i = 1; i <= BREAKTHROUGH.paidPerDay + 2; i++) t.p.noteResult(r(100 * (i + 1) * 2))
+    const s = t.p.snapshot()
+    expect(s.counts.breakthrough).toBe(BREAKTHROUGH.paidPerDay + 2)
+    expect(s.cash).toBe(BREAKTHROUGH.bonus * BREAKTHROUGH.paidPerDay)
+  })
+
+  it('a demo and a live account keep separate high-water marks, and live profit pays the larger share', () => {
+    const t = fresh()
+    t.p.noteEquity([{ equity: 5000, login: '900', live: true, mtimeMs: 1 }, { equity: 10000, login: '123', mtimeMs: 1 }])
+    expect(t.p.snapshot().cash).toBe(0)
+    t.p.noteEquity([{ equity: 5200, login: '900', live: true, mtimeMs: 2 }, { equity: 10100, login: '123', mtimeMs: 2 }])
+    expect(t.p.snapshot().cash).toBe(200 * PROFIT_SHARE.live + 100 * PROFIT_SHARE.demo)
+    // A drawdown and a recovery below the old high earn nothing
+    t.p.noteEquity([{ equity: 5100, login: '900', live: true, mtimeMs: 3 }])
+    t.p.noteEquity([{ equity: 5150, login: '900', live: true, mtimeMs: 4 }])
+    expect(t.p.snapshot().cash).toBe(200 * PROFIT_SHARE.live + 100 * PROFIT_SHARE.demo)
   })
 })

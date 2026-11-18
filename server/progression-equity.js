@@ -65,7 +65,7 @@ function after(lines, label) {
  * @param {{ demoAccounts?: string[] }} [opts]
  * @returns {{ equity: number, balance: number | null, login: string | null, demo: boolean, date: string | null } | null}
  */
-export function parseAccountReport(text, { demoAccounts = [] } = {}) {
+export function parseAccountReport(text, { demoAccounts = [], liveAccounts = [] } = {}) {
   const lines = htmlText(text).split('\n')
   // A Strategy Tester report is a simulation: its numbers are never the account's
   if (lines.some(l => /strategy tester report/i.test(l))) return null
@@ -76,7 +76,9 @@ export function parseAccountReport(text, { demoAccounts = [] } = {}) {
   const login = /(\d{4,12})/.exec(account)?.[1] ?? null
   const demo = /demo/i.test(account) || (login !== null && demoAccounts.map(String).includes(login))
   const date = after(lines, 'Date') || null
-  return { equity, balance, login, demo, date: date ? date.slice(0, 40) : null }
+  // A live account counts only when it is named (progression.liveAccounts): never by accident
+  const live = !demo && login !== null && liveAccounts.map(String).includes(login)
+  return { equity, balance, login, demo, live, date: date ? date.slice(0, 40) : null }
 }
 
 /** The report files under the configured paths (folders are read one level deep). */
@@ -107,8 +109,8 @@ export function readEquity(config = {}, { read = p => readFileSync(p) } = {}) {
   const readings = []
   for (const f of files) {
     let r = null
-    try { r = parseAccountReport(decodeText(read(f.path)), { demoAccounts: config.demoAccounts }) } catch {}
-    if (r && r.demo) readings.push({ ...r, file: f.path, mtimeMs: f.mtimeMs })
+    try { r = parseAccountReport(decodeText(read(f.path)), { demoAccounts: config.demoAccounts, liveAccounts: config.liveAccounts }) } catch {}
+    if (r && (r.demo || r.live)) readings.push({ ...r, file: f.path, mtimeMs: f.mtimeMs })
   }
   return readings
 }

@@ -13,8 +13,16 @@
  *                           (server/progression-facts.js, POST /progression/facts):
  *                           commit, push, pr_merge, mt5_run (walk-forward, report),
  *                           ea_compile, test/build (JS converter only), lesson
- *   noteEquity(readings)    demo equity from a real MT5 account report
+ *   noteEquity(readings)    equity from a real MT5 account report
  *                           (server/progression-equity.js); nothing else sets it
+ *   noteResult(result)      a finished tester run's report numbers (server/ea-scenes.js)
+ *
+ * ## The firm's money
+ *
+ *   Every counted event pays cash in step with its XP (CASH_BASE), a tester
+ *   result that beats the best on the books pays a breakthrough bonus, and a
+ *   new account equity high pays a share of the real profit (PROFIT_SHARE).
+ *   buy(id) spends it on a piece for the office; nothing unbought is drawn.
  *
  * ## Anti-farming
  *
@@ -132,15 +140,51 @@ export const MILESTONES = [
  * Furniture that unlocks. A locked one stands under a dust sheet with a lock
  * (rare ones stay hidden until they unlock).
  */
+/**
+ * The firm's money. Every counted event pays cash in step with its XP (so the
+ * same diminishing returns and daily caps apply), a research result that beats
+ * the best one on the books pays a breakthrough bonus, and a new equity high
+ * on a real account report pays a share of the profit.
+ */
+export const CASH_BASE = {
+  turn: 5,
+  worker: 10,
+  test_ok: 10,
+  build_ok: 5,
+  ea_compile: 15,
+  commit: 20,
+  push: 20,
+  pr_merge: 150,
+  deploy: 100,
+  mt5_run: 60,
+  mt5_report: 30,
+  walk_forward: 250,
+  lesson: 80,
+}
+/** Cash for an event that earned `xp` of its kind's base XP. */
+export function cashFor(kind, xp) {
+  const base = XP_BASE[kind]
+  const pay = CASH_BASE[kind]
+  return base && pay && xp > 0 ? Math.max(1, Math.round((pay * xp) / base)) : 0
+}
+/** The firm's cut of new profit above an account's high-water mark */
+export const PROFIT_SHARE = { demo: 0.1, live: 0.5 }
+/** A breakthrough: a tester result whose net profit / max drawdown beats the best for that EA, symbol and period */
+export const BREAKTHROUGH = { bonus: 400, minTrades: 30, margin: 1.02, paidPerDay: 3 }
+
+/**
+ * What the firm can buy for the office (`price`), and the rare pieces that are
+ * earned (`test`). Nothing bought is drawn: the office starts bare.
+ */
 export const UNLOCKS = [
-  { id: 'trophy-cabinet', title: 'Trophy cabinet', detail: 'Where the trophies go', hint: 'Always open', test: () => true },
-  { id: 'mailbox', title: 'Mailbox', detail: 'Its flag goes up when there is news', hint: 'Reach level 2', test: c => c.level >= 2 },
-  { id: 'lessons-binder', title: 'Lessons binder', detail: 'Every fail-then-fix, filed', hint: 'Fix something that failed', test: c => c.counts.lesson >= 1 },
-  { id: 'shipped-bin', title: 'Shipped bin', detail: 'A parcel per merged PR or deploy', hint: 'Push or merge a PR', test: c => c.counts.push >= 1 || c.counts.pr_merge >= 1 || c.counts.deploy >= 1 },
-  { id: 'rooftop-garden', title: 'Rooftop garden', detail: 'A plant for every merged PR', hint: 'Merge a pull request', test: c => c.counts.pr_merge >= 1 },
-  { id: 'backtest-bay', title: 'Backtest bay', detail: 'The rack that hums during MT5 runs', hint: 'Finish an MT5 tester run', test: c => c.counts.mt5_run >= 1 },
-  { id: 'equity-wall', title: 'Equity wall', detail: 'Demo equity from your MT5 reports', hint: 'Point progression.equityReports at an MT5 account report', test: c => c.equityReadings >= 1 },
-  { id: 'money-tree', title: 'Money tree', detail: 'Office level 5', hint: 'Reach level 5', test: c => c.level >= 5 },
+  { id: 'trophy-cabinet', title: 'Trophy cabinet', detail: 'Where the trophies go, with the level plate', category: 'Furniture', price: 250 },
+  { id: 'mailbox', title: 'Mailbox', detail: 'Its flag goes up when there is news', category: 'Furniture', price: 400 },
+  { id: 'lessons-binder', title: 'Lessons binder', detail: 'Every fail-then-fix, filed', category: 'Furniture', price: 600 },
+  { id: 'shipped-bin', title: 'Shipped bin', detail: 'A parcel per merged PR or deploy', category: 'Furniture', price: 900 },
+  { id: 'backtest-bay', title: 'Backtest bay', detail: 'A crash cart at the rack, with the run count', category: 'Equipment', price: 1500 },
+  { id: 'equity-wall', title: 'Equity plate', detail: 'The demo equity high, in brass under the wall dashboard', category: 'Equipment', price: 2000 },
+  { id: 'rooftop-garden', title: 'Window garden', detail: 'A plant for every merged PR', category: 'Decor', price: 2500 },
+  { id: 'money-tree', title: 'Money tree', detail: 'It does not grow money. It looks like it might', category: 'Decor', price: 5000 },
   // Rare
   { id: 'golden-bull', title: 'Golden bull', detail: '10 walk-forward runs', hint: 'Rare', rare: true, test: c => c.counts.walk_forward >= 10 },
   { id: 'clover', title: 'Four-leaf clover', detail: 'Fixed something that had failed 5 times or more', hint: 'Rare', rare: true, test: c => c.lessonMaxFails >= 5 },
@@ -148,7 +192,7 @@ export const UNLOCKS = [
   { id: 'gem', title: 'Desk gem', detail: 'Active 30 days running', hint: 'Rare', rare: true, test: c => c.streak >= 30 },
 ]
 
-const COUNT_KINDS = [...Object.keys(XP_BASE), 'test_fail', 'build_fail', 'deploy_fail', 'worker_fail', 'ea_compile_fail', 'repeat']
+const COUNT_KINDS = [...Object.keys(XP_BASE), 'breakthrough', 'test_fail', 'build_fail', 'deploy_fail', 'worker_fail', 'ea_compile_fail', 'repeat']
 
 // Why 30: seen keys only guard against replays; the watcher replays at most a turn
 const KEEP_SEEN_DAYS = 30
@@ -218,6 +262,7 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
     CREATE TABLE IF NOT EXISTS progression_awards (id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, tier TEXT, detail TEXT, rare INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL, date TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS progression_lessons (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL, fails INTEGER NOT NULL, ms INTEGER NOT NULL, session TEXT, at INTEGER NOT NULL, date TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS progression_garden (key TEXT PRIMARY KEY, repo TEXT, pr INTEGER, seed INTEGER NOT NULL, at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS progression_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, date TEXT NOT NULL, kind TEXT NOT NULL, amount INTEGER NOT NULL, label TEXT);
     CREATE TABLE IF NOT EXISTS progression_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, date TEXT NOT NULL, kind TEXT NOT NULL, xp INTEGER NOT NULL, label TEXT);
   `)
 
@@ -247,6 +292,11 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
     prunePlants: db.prepare('DELETE FROM progression_garden WHERE key IN (SELECT key FROM progression_garden ORDER BY at DESC LIMIT -1 OFFSET ?)'),
     log: db.prepare('INSERT INTO progression_log (at, date, kind, xp, label) VALUES (?, ?, ?, ?, ?)'),
     recent: db.prepare('SELECT at, kind, xp, label FROM progression_log ORDER BY id DESC LIMIT ?'),
+    ledger: db.prepare('INSERT INTO progression_ledger (at, date, kind, amount, label) VALUES (?, ?, ?, ?, ?)'),
+    ledgerRecent: db.prepare('SELECT at, kind, amount, label FROM progression_ledger ORDER BY id DESC LIMIT ?'),
+    ledgerDay: db.prepare('SELECT COALESCE(SUM(amount), 0) AS n FROM progression_ledger WHERE date = ? AND amount > 0'),
+    ledgerDayKind: db.prepare('SELECT COUNT(*) AS n FROM progression_ledger WHERE date = ? AND kind = ? AND amount > 0'),
+    pruneLedger: db.prepare('DELETE FROM progression_ledger WHERE id <= (SELECT id FROM progression_ledger ORDER BY id DESC LIMIT 1 OFFSET ?)'),
     pruneLog: db.prepare('DELETE FROM progression_log WHERE id <= (SELECT id FROM progression_log ORDER BY id DESC LIMIT 1 OFFSET ?)'),
   }
 
@@ -292,7 +342,20 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
     return {
       xp, level, title: levelTitle(level), levelFloor: levelFloor(level), nextLevelXp: levelFloor(level + 1),
       todayXp: Object.values(todayXp).reduce((a, b) => a + b, 0), streak: streak(today),
+      cash: state('cash', 0), cashEarned: state('cashEarned', 0), todayCash: q.ledgerDay.get(today).n,
     }
+  }
+
+  /** Money in (amount > 0) or out (a purchase) of the firm's account, on the ledger. */
+  function addCash(kind, amount, label) {
+    const n = Math.round(amount)
+    if (!n) return 0
+    const t = now()
+    setState('cash', state('cash', 0) + n)
+    if (n > 0) setState('cashEarned', state('cashEarned', 0) + n)
+    q.ledger.run(t, localDate(t), kind, n, clean(label) ?? null)
+    q.pruneLedger.run(MAX_LOG)
+    return n
   }
 
   function award(a) {
@@ -322,7 +385,8 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
       tr.tiers.forEach((n, i) => { if (c[tr.kind] >= n) give({ id: `trophy:${tr.id}:${TIERS[i]}`, type: 'trophy', title: tr.title, tier: TIERS[i], detail: `${n} ${tr.title.toLowerCase()}` }) })
     }
     for (const m of MILESTONES) if (m.test(ctx)) give({ id: `milestone:${m.id}`, type: 'milestone', title: m.title, detail: m.detail })
-    for (const u of UNLOCKS) if (u.test(ctx)) give({ id: `unlock:${u.id}`, type: 'unlock', title: u.title, detail: u.detail, rare: !!u.rare })
+    // Only the rare pieces are earned; the rest is bought (buy)
+    for (const u of UNLOCKS) if (u.test && u.test(ctx)) give({ id: `unlock:${u.id}`, type: 'unlock', title: u.title, detail: u.detail, rare: !!u.rare })
     return out
   }
 
@@ -349,9 +413,11 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
     const row = q.daily.get(date, kind)
     const xp = XP_BASE[kind] ? xpFor(kind, row?.count ?? 0, row?.xp ?? 0) : 0
     const before = state('xp', 0)
+    const cash = cashFor(kind, xp)
     db.transaction(() => {
       q.bumpDaily.run(date, kind, xp)
       q.bumpCount.run(kind)
+      if (cash) addCash(kind, cash, label)
       if (xp) {
         setState('xp', before + xp)
         q.log.run(t, date, kind, xp, clean(label) ?? null)
@@ -359,10 +425,10 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
       }
     })()
     if (XP_BASE[kind]) {
-      broadcast({ type: 'progression_update', ...totals(), gain: { kind, xp, ...(label ? { label: clean(label) } : {}) }, timestamp: t })
+      broadcast({ type: 'progression_update', ...totals(), gain: { kind, xp, cash, ...(label ? { label: clean(label) } : {}) }, timestamp: t })
       check()
     }
-    return { xp, counted: true }
+    return { xp, cash, counted: true }
   }
 
   /** A failure: counted for the recap and the quarter, never any XP. */
@@ -492,26 +558,111 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
    */
   function noteEquity(readings) {
     if (!enabled() || !Array.isArray(readings) || !readings.length) return null
-    const r = readings.find(x => Number.isFinite(x?.equity))
-    if (!r) return null
+    // The newest reading of each account (a demo and a live account keep separate high-water marks)
+    const done = new Set()
+    let first
+    for (const r of readings) {
+      if (!Number.isFinite(r?.equity)) continue
+      const acct = String(r.login ?? '')
+      if (done.has(acct)) continue
+      done.add(acct)
+      const res = noteAccount(r, acct)
+      if (first === undefined) first = res
+    }
+    return first ?? null
+  }
+
+  function noteAccount(r, acct) {
     const seenKey = `${r.login ?? ''}:${r.equity}:${r.mtimeMs ?? ''}`
-    if (state('equityLast', '') === seenKey) return null
+    const lasts = state('equityLasts', {})
+    if (lasts[acct] === seenKey || state('equityLast', '') === seenKey) return null
+    lasts[acct] = seenKey
+    setState('equityLasts', lasts)
     setState('equityLast', seenKey)
     setState('equityReadings', state('equityReadings', 0) + 1)
-    const high = state('equityHigh', null)
+    const highs = state('equityHighs', {})
+    // Books from before accounts were kept apart: the one high belongs to its login
+    const legacy = state('equityHigh', null)
+    if (legacy && !Object.keys(highs).length) highs[String(legacy.login ?? '')] = legacy
+    const high = highs[acct] ?? null
     const t = now()
-    if (high === null || (high.login && r.login && high.login !== r.login)) {
-      setState('equityHigh', { equity: r.equity, login: r.login ?? null, at: t, date: r.date ?? null })
+    const mark = { equity: r.equity, login: r.login ?? null, at: t, date: r.date ?? null, live: !!r.live }
+    if (high === null) {
+      highs[acct] = mark
+      setState('equityHighs', highs)
+      setState('equityHigh', mark)
       check()
       broadcast({ type: 'progression_update', ...totals(), timestamp: t })
       return { baseline: true, equity: r.equity }
     }
     if (r.equity > high.equity + 0.005) {
-      setState('equityHigh', { equity: r.equity, login: r.login ?? null, at: t, date: r.date ?? null })
-      gain('equity_high', { key: seenKey, label: `demo equity high ${r.equity.toFixed(2)}` })
-      return { high: true, equity: r.equity }
+      highs[acct] = mark
+      setState('equityHighs', highs)
+      setState('equityHigh', mark)
+      const kind = r.live ? 'live' : 'demo'
+      const g = gain('equity_high', { key: seenKey, label: `${kind} equity high ${r.equity.toFixed(2)}` })
+      // The firm's cut of the new profit above the old high (real money on the report, not a made-up number)
+      let share = 0
+      if (g.counted) {
+        share = addCash('ea_profit', (r.equity - high.equity) * (r.live ? PROFIT_SHARE.live : PROFIT_SHARE.demo), `${kind} account profit`)
+        if (share) broadcast({ type: 'progression_update', ...totals(), gain: { kind: 'ea_profit', xp: 0, cash: share, label: `${kind} account profit` }, timestamp: t })
+      }
+      return { high: true, equity: r.equity, share }
     }
     return { equity: r.equity }
+  }
+
+  /**
+   * A finished tester run with a report the office read (server/ea-scenes.js).
+   * Its score is net profit over max drawdown. The first scored result of an
+   * EA on a symbol and period is the baseline; one that beats the best by
+   * BREAKTHROUGH.margin is a breakthrough: counted always, paid the bonus for
+   * the first few of a day.
+   */
+  function noteResult(r) {
+    if (!enabled() || !r || typeof r !== 'object') return null
+    const net = Number(r.netProfit)
+    const dd = Number(r.maxDrawdown)
+    const trades = Number(r.trades)
+    const expert = clean(String(r.expert ?? '').split(/[\\/]/).pop()?.replace(/\.ex5$/i, ''), 60)
+    if (!expert || !(net > 0) || !(dd > 0) || !(trades >= BREAKTHROUGH.minTrades)) return null
+    const key = [expert.toLowerCase(), clean(String(r.symbol ?? ''), 20) ?? '', clean(String(r.period ?? ''), 10) ?? ''].join('|')
+    const score = net / dd
+    const best = state('bestResults', {})
+    const prev = best[key]
+    if (prev !== undefined && !(score > prev * BREAKTHROUGH.margin)) return { breakthrough: false, score }
+    best[key] = score
+    const keys = Object.keys(best)
+    if (keys.length > 400) delete best[keys[0]]
+    setState('bestResults', best)
+    if (prev === undefined) return { baseline: true, score }
+    const t = now()
+    const date = localDate(t)
+    const label = `breakthrough: ${expert}${r.symbol ? ` ${clean(String(r.symbol), 20)}` : ''}`
+    const paid = q.ledgerDayKind.get(date, 'breakthrough').n < BREAKTHROUGH.paidPerDay
+    q.bumpDaily.run(date, 'breakthrough', 0)
+    q.bumpCount.run('breakthrough')
+    const cash = paid ? addCash('breakthrough', BREAKTHROUGH.bonus, label) : 0
+    broadcast({ type: 'progression_update', ...totals(), gain: { kind: 'breakthrough', xp: 0, cash, label }, timestamp: t })
+    check()
+    return { breakthrough: true, score, cash }
+  }
+
+  /** Buy a piece for the office. @returns {{ ok: true, cash: number } | { ok: false, error: string }} */
+  function buy(id) {
+    if (!enabled()) return { ok: false, error: 'progression is off' }
+    const u = UNLOCKS.find(x => x.id === id && x.price)
+    if (!u) return { ok: false, error: 'not for sale' }
+    if (q.awards.all().some(a => a.id === `unlock:${u.id}`)) return { ok: false, error: 'already bought' }
+    const cash = state('cash', 0)
+    if (cash < u.price) return { ok: false, error: `needs ${u.price - cash} more` }
+    let a = null
+    db.transaction(() => {
+      addCash('purchase', -u.price, u.title)
+      a = award({ id: `unlock:${u.id}`, type: 'unlock', title: u.title, detail: u.detail })
+    })()
+    broadcast({ type: 'progression_update', ...totals(), timestamp: now() })
+    return a ? { ok: true, cash: state('cash', 0) } : { ok: false, error: 'already bought' }
   }
 
   // -------------------------------------------------------------------------
@@ -539,7 +690,8 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
         // A rare one keeps its secret until it unlocks
         return u.rare && !a
           ? { id: u.id, title: '???', detail: 'A rare unlock', hint: 'Rare', rare: true, unlocked: false, at: null }
-          : { id: u.id, title: u.title, detail: u.detail, hint: u.hint, rare: !!u.rare, unlocked: !!a, at: a?.at ?? null }
+          : { id: u.id, title: u.title, detail: u.detail, hint: u.hint ?? (u.price ? `Buy it for $${u.price}` : ''), rare: !!u.rare, unlocked: !!a, at: a?.at ?? null,
+              ...(u.price ? { price: u.price, category: u.category } : {}) }
       }),
       awards: awards.slice(-60).map(a => ({ id: a.id, type: a.type, title: a.title, tier: a.tier, detail: a.detail, rare: !!a.rare, at: a.at })),
       lessons: q.lessons.all(30),
@@ -547,6 +699,8 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
       shipped: (c.pr_merge ?? 0) + (c.deploy ?? 0),
       equity: high ? { high: high.equity, at: high.at, readings: state('equityReadings', 0) } : { high: null, readings: state('equityReadings', 0) },
       recent: q.recent.all(15),
+      ledger: q.ledgerRecent.all(20),
+      cashRules: { base: CASH_BASE, profitShare: PROFIT_SHARE, breakthrough: BREAKTHROUGH },
       xpRules: { base: XP_BASE, dailyCapFactor: DAILY_CAP_FACTOR, repeatMs: REPEAT_MS },
     }
   }
@@ -609,7 +763,7 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
   function reset() {
     const keep = enabled()
     db.transaction(() => {
-      for (const t of ['progression_state', 'progression_daily', 'progression_counts', 'progression_seen', 'progression_awards', 'progression_lessons', 'progression_garden', 'progression_log']) db.prepare(`DELETE FROM ${t}`).run()
+      for (const t of ['progression_state', 'progression_daily', 'progression_counts', 'progression_seen', 'progression_awards', 'progression_lessons', 'progression_garden', 'progression_log', 'progression_ledger']) db.prepare(`DELETE FROM ${t}`).run()
       setState('enabled', keep)
     })()
     lastBy.clear(); signalFails.clear()
@@ -618,8 +772,8 @@ export function createProgression(db, { now = () => Date.now(), broadcast = () =
     log.log?.('[progression] reset')
   }
 
-  // The always-open cabinet (and anything earned while the module was older)
+  // Anything earned while the module was older
   if (enabled()) check()
 
-  return { noteBroadcast, noteFact, noteEquity, snapshot, day, quarter, enabled, setEnabled, reset, check, gain }
+  return { noteBroadcast, noteFact, noteEquity, noteResult, buy, snapshot, day, quarter, enabled, setEnabled, reset, check, gain }
 }

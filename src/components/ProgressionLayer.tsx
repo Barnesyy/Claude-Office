@@ -8,11 +8,11 @@
  *   rooftop garden   the window box: a plant per merged PR
  *   backtest bay     the EA backtest station's crash cart and its run plate
  *                    (src/components/EaScene.tsx draws the station; the cart
- *                    stands under the dust sheet until this unlocks)
+ *                    absent until this is bought)
  *   equity plate     the demo equity high, on a brass plate under the wall
  *                    dashboard (the whiteboard's EQ mode is the one equity
  *                    display: the tester report's balance curve)
- *   money tree       unlockable furniture: under a dust sheet with a padlock
+ *   money tree       furniture the firm buys: not drawn at all until bought
  *                    until earned, then the sheet lifts in a star burst
  *
  * Rendered as siblings inside .room-container (a fragment), like
@@ -47,15 +47,15 @@ export const SPOTS = {
   'money-tree': { x: 70.0, y: 81.6 },
 } as const
 
-type UnlockId = 'mailbox' | 'lessons-binder' | 'shipped-bin' | 'rooftop-garden' | 'backtest-bay' | 'equity-wall' | 'money-tree'
+type UnlockId = 'trophy-cabinet' | 'mailbox' | 'lessons-binder' | 'shipped-bin' | 'rooftop-garden' | 'backtest-bay' | 'equity-wall' | 'money-tree'
 
 const SHEET_FOR: Record<UnlockId, keyof typeof SHEET_SPRITES> = {
-  mailbox: 'tall', 'lessons-binder': 'small', 'shipped-bin': 'medium', 'rooftop-garden': 'long',
+  'trophy-cabinet': 'tall', mailbox: 'tall', 'lessons-binder': 'small', 'shipped-bin': 'medium', 'rooftop-garden': 'long',
   'backtest-bay': 'tall', 'equity-wall': 'small', 'money-tree': 'medium',
 }
 
 const SPOT_FOR: Record<UnlockId, { x: number; y: number }> = {
-  mailbox: SPOTS.mailbox, 'lessons-binder': SPOTS.binder, 'shipped-bin': SPOTS.bin, 'rooftop-garden': SPOTS.planter,
+  'trophy-cabinet': SPOTS.cabinet, mailbox: SPOTS.mailbox, 'lessons-binder': SPOTS.binder, 'shipped-bin': SPOTS.bin, 'rooftop-garden': SPOTS.planter,
   'backtest-bay': SPOTS['backtest-bay'], 'equity-wall': SPOTS['equity-wall'], 'money-tree': SPOTS['money-tree'],
 }
 
@@ -99,19 +99,19 @@ function StarBurst() {
   )
 }
 
-/** A locked piece under its dust sheet, or (while it unlocks) the sheet lifting off it. */
-function Covered({ id, unlocked, revealing, title, hint, children }: { id: UnlockId; unlocked: boolean; revealing: boolean; title: string; hint: string; children: React.ReactNode }) {
+/** A piece the firm has not bought is not there at all; while it arrives, the sheet lifts off it with a star burst. */
+function Covered({ id, unlocked, revealing, title, children }: { id: UnlockId; unlocked: boolean; revealing: boolean; title: string; hint: string; children: React.ReactNode }) {
   const spot = SPOT_FOR[id]
-  if (unlocked && !revealing) return <>{children}</>
+  if (!unlocked) return null
+  if (!revealing) return <>{children}</>
   return (
     <>
-      {unlocked && children}
-      <Prop spot={spot} z={Math.round(spot.y) + 1} title={unlocked ? title : `Locked: ${title}. ${hint}`} onClick={() => openProgressionPanel('unlocks')} testId={`prog-locked-${id}`} className={revealing ? 'revealing' : 'locked'}>
+      {children}
+      <Prop spot={spot} z={Math.round(spot.y) + 1} title={title} testId={`prog-reveal-${id}`} className="revealing">
         <div className="prog-sheet">
           <Sprite src={SHEET_SPRITES[SHEET_FOR[id]]} />
-          {!revealing && <img className="prog-padlock" src={SPRITES.padlock} alt="locked" style={{ height: artSize(SPRITES.padlock).h }} />}
         </div>
-        {revealing && <StarBurst />}
+        <StarBurst />
       </Prop>
     </>
   )
@@ -180,23 +180,24 @@ const ProgressionLayer: React.FC = () => {
 
   return (
     <>
-      {/* Trophy cabinet: always there */}
-      <Prop spot={SPOTS.cabinet} title={`Trophy cabinet · level ${snap.level} ${snap.title} · ${snap.xp} XP`} onClick={() => openProgressionPanel('trophies')} testId="prog-cabinet">
-        <div className="prog-cabinet" style={{ width: cab.w, height: cab.h }}>
-          <Sprite src={SPRITES.cabinet} />
-          {trophies.map((t, i) => slots[i] && (
-            <img key={t.track} className="prog-trophy" src={TROPHY_SPRITES[t.tier]} alt={`${t.title} (${t.tier})`} title={`${t.title} · ${t.tier}`}
-              style={{ left: `${slots[i].x}%`, top: `${slots[i].y}%`, height: 11 }} />
-          ))}
-          <div className="prog-cabinet-top">
-            {rares.map(r => <img key={r} src={r === 'golden-bull' ? SPRITES.bull : r === 'crown' ? SPRITES.crown : SPRITES.gem} alt={r} title={unlock(r)?.title} style={{ height: r === 'golden-bull' ? 22 : 12 }} />)}
+      {/* Trophy cabinet: the first thing most firms buy */}
+      {cover('trophy-cabinet', (
+        <Prop spot={SPOTS.cabinet} title={`Trophy cabinet · level ${snap.level} ${snap.title} · ${snap.xp} XP`} onClick={() => openProgressionPanel('trophies')} testId="prog-cabinet">
+          <div className="prog-cabinet" style={{ width: cab.w, height: cab.h }}>
+            <Sprite src={SPRITES.cabinet} />
+            {trophies.map((t, i) => slots[i] && (
+              <img key={t.track} className="prog-trophy" src={TROPHY_SPRITES[t.tier]} alt={`${t.title} (${t.tier})`} title={`${t.title} · ${t.tier}`}
+                style={{ left: `${slots[i].x}%`, top: `${slots[i].y}%`, height: 11 }} />
+            ))}
+            <div className="prog-cabinet-top">
+              {rares.map(r => <img key={r} src={r === 'golden-bull' ? SPRITES.bull : r === 'crown' ? SPRITES.crown : SPRITES.gem} alt={r} title={unlock(r)?.title} style={{ height: r === 'golden-bull' ? 22 : 12 }} />)}
+            </div>
+            <span className="prog-plate" data-testid="prog-level">LV {snap.level}</span>
+            {gain && <span key={gain.at} className="prog-gain">+{gain.xp} XP</span>}
+            <div className="prog-xpbar" aria-hidden="true"><i style={{ width: `${Math.round(xpProgress(snap) * 100)}%` }} /></div>
           </div>
-          <span className="prog-plate" data-testid="prog-level">LV {snap.level}</span>
-          {gain && <span key={gain.at} className="prog-gain">+{gain.xp} XP</span>}
-          <div className="prog-xpbar" aria-hidden="true"><i style={{ width: `${Math.round(xpProgress(snap) * 100)}%` }} /></div>
-          {revealing('trophy-cabinet') && <StarBurst />}
-        </div>
-      </Prop>
+        </Prop>
+      ))}
 
       {cover('mailbox', (
         <Prop spot={SPOTS.mailbox} title={news ? 'News: awards you have not opened' : 'Mailbox: nothing new'} onClick={() => openProgressionPanel('today')} testId="prog-mailbox">
@@ -250,11 +251,7 @@ const ProgressionLayer: React.FC = () => {
           <span className="prog-plate prog-equity-plate">DEMO HIGH {snap.equity.high !== null ? Math.round(snap.equity.high).toLocaleString('en-AU') : '—'}</span>
           {revealing('equity-wall') && <StarBurst />}
         </Prop>
-      ) : (
-        <Prop spot={SPOTS['equity-wall']} title={`Locked: ${unlock('equity-wall')?.title ?? 'Equity wall'}. ${unlock('equity-wall')?.hint ?? ''}`} onClick={() => openProgressionPanel('unlocks')} testId="prog-locked-equity-wall" className="locked">
-          <span className="prog-plate prog-equity-plate locked"><img src={SPRITES.padlock} alt="locked" style={{ height: 7, display: 'inline', verticalAlign: '-1px' }} /> DEMO HIGH</span>
-        </Prop>
-      )}
+      ) : null}
 
       {cover('money-tree', (
         <Prop spot={SPOTS['money-tree']} title="Money tree (level 5)" testId="prog-money-tree">

@@ -36,7 +36,7 @@ describe('parsing', () => {
   })
   it('a demo account report reads its equity, balance, login and date', () => {
     expect(parseAccountReport(SAMPLE('5012345 (MetaQuotes-Demo, Hedge)', '10 250.75'))).toEqual({
-      equity: 10250.75, balance: 10120, login: '5012345', demo: true, date: '2026.11.12 09:30',
+      equity: 10250.75, balance: 10120, login: '5012345', demo: true, live: false, date: '2026.11.12 09:30',
     })
   })
   it('a live account is not demo unless it is listed', () => {

@@ -17,10 +17,19 @@ describe('progression in the office', () => {
   afterAll(() => removeOffice(office))
   const get = async (path = '/progression') => (await request(office.server.app).get(path)).body
 
-  it('GET /progression is a fresh office: level 1, the cabinet open', async () => {
+  it('GET /progression is a fresh office: level 1, no cash, nothing bought', async () => {
     const s = await get()
-    expect(s).toMatchObject({ enabled: true, xp: 0, level: 1 })
-    expect(s.unlocks.find((u: any) => u.id === 'trophy-cabinet').unlocked).toBe(true)
+    expect(s).toMatchObject({ enabled: true, xp: 0, level: 1, cash: 0 })
+    expect(s.unlocks.filter((u: any) => u.unlocked)).toEqual([])
+  })
+
+  it('POST /progression/buy needs the UI token, the money and a piece that is for sale', async () => {
+    const buy = (id: unknown, token?: string) => { const r = request(office.server.app).post('/progression/buy'); return (token ? r.set('Authorization', `Bearer ${token}`) : r).send({ id }) }
+    expect((await buy('mailbox')).status).toBe(401)
+    expect((await buy('mailbox', office.server.UI_TOKEN)).status).toBe(409)
+    expect((await buy('golden-bull', office.server.UI_TOKEN)).status).toBe(404)
+    expect((await buy(7, office.server.UI_TOKEN)).status).toBe(404)
+    expect((await get()).unlocks.filter((u: any) => u.unlocked)).toEqual([])
   })
 
   it('a green test signal on /event earns XP through the tap; a failed one earns none', async () => {
