@@ -620,7 +620,9 @@ const fmt = n => (n === null || n === undefined ? '?' : Math.abs(n) >= 1000 ? n.
  * @param {(state: object) => void} [opts.onChange] called with snapshot() after each change
  */
 export class EaScenes {
-  constructor({ config = resolveEaConfig({}, {}), now = () => Date.now(), onChange = () => {}, readWorkbench, pin = null, onPin = () => {} } = {}) {
+  constructor({ config = resolveEaConfig({}, {}), now = () => Date.now(), onChange = () => {}, readWorkbench, pin = null, onPin = () => {}, onResult = () => {} } = {}) {
+    /** A finished tester run whose report was read: its numbers, for the firm's books (server/progression.js noteResult) */
+    this.onResult = onResult
     this.config = config
     this.now = now
     this.onChange = onChange
@@ -862,6 +864,7 @@ export class EaScenes {
 
   reportReady(call, report, now, base) {
     const summary = reportSummary(report)
+    try { this.onResult({ ...summary, expert: summary.expert ?? call.config?.expert }) } catch {}
     this.showStation(call, { ...base, status: 'done', finishedAt: now, report: summary })
     // A run started from a Claude session is what is being worked on: its curve goes up at once (unless one is picked)
     this.setFocus(report.expert ?? call.config?.expert, 'run', now)
@@ -1050,6 +1053,7 @@ export class EaScenes {
       for (const r of wb.running) if (!before.has(r.id)) { this.say(`Workbench: ${r.test} started on ${r.installName}${r.what ? ` — ${r.what.slice(0, 60)}` : ''}`, 'info'); changed = true }
       for (const id of before) if (!ids.has(id) && wb.latest?.id === id) {
         const l = wb.latest
+        if (l.report) try { this.onResult({ ...l.report, expert: l.report.expert ?? l.expert, symbol: l.report.symbol ?? l.symbol }) } catch {}
         this.say(l.report ? `Workbench: ${l.test} finished: net ${fmt(l.report.netProfit)}, max DD ${fmt(l.report.maxDrawdown)}${l.report.maxDrawdownPct !== null && l.report.maxDrawdownPct !== undefined ? ` (${l.report.maxDrawdownPct}%)` : ''}, ${l.report.trades ?? '?'} trades` : `Workbench: ${l.test} finished (${l.why ?? 'no report'})`, l.report ? (l.report.netProfit !== null && l.report.netProfit < 0 ? 'bad' : 'good') : 'info')
         changed = true
       }

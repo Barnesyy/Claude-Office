@@ -109,6 +109,8 @@ interface SnapshotMessage {
   taskBoards?: TaskBoardInfo[]
   /** The EA scenes' state (server/ea-scenes.js) */
   ea?: unknown
+  /** The side rooms the firm has bought; null or absent: every room is open (server/progression.js rooms()) */
+  rooms?: string[] | null
   mcpServers: string[]
   timestamp: number
 }
@@ -357,8 +359,10 @@ export function useAgentSocket(options: AgentSocketOptions = {}): AgentSocketRes
         // connection, and both by a server without them)
         pendingPermissions: snap.pendingPermissions,
         uiToken: snap.uiToken,
+        // Which side rooms exist (src/App.tsx applyRooms)
+        rooms: snap.rooms,
         timestamp: snap.timestamp,
-      })
+      } as OfficeEvent)
       return
     }
 

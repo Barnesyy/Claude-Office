@@ -32,7 +32,7 @@ import { pillLabel } from './SessionStrip'
 import { officeHttpBase } from '../serverUrl'
 import TodayPanel from './TodayPanel'
 import ProgressionPanel from './ProgressionPanel'
-import { useProgression, openProgressionPanel, closeProgressionPanel, hasNews } from '../progression'
+import { useProgression, openProgressionPanel, closeProgressionPanel, hasNews, money } from '../progression'
 import '../styles/strip.css'
 
 const params = new URLSearchParams(window.location.search)
@@ -235,7 +235,7 @@ const StatusStrip: React.FC<StatusStripProps> = ({ office, sessions = [], readOn
           title={`Office level ${progression.snapshot.level}: ${progression.snapshot.title} · ${progression.snapshot.xp} XP (progression)`}
           data-testid="strip-level"
         >
-          lv {progression.snapshot.level} · {progression.snapshot.xp} xp
+          {money(progression.snapshot.cash)} · lv {progression.snapshot.level} · {progression.snapshot.xp} xp
         </button>
       )}
       {s && <span className="strip-item strip-version">v{s.version}</span>}

@@ -40,7 +40,8 @@ export interface Track {
   tiers: { tier: Tier; threshold: number; earned: boolean; at: number | null }[]
 }
 
-export interface Unlock { id: string; title: string; detail: string; hint: string; rare: boolean; unlocked: boolean; at: number | null }
+/** A piece for the office: bought with the firm's cash (`price`), or a rare one that is earned */
+export interface Unlock { id: string; title: string; detail: string; hint: string; rare: boolean; unlocked: boolean; at: number | null; price?: number; category?: string }
 export interface Milestone { id: string; title: string; detail: string; earned: boolean; at: number | null }
 export interface Lesson { id: number; label: string; fails: number; ms: number; at: number; date: string }
 export interface Plant { key: string; repo: string | null; pr: number | null; seed: number; at: number }
@@ -53,6 +54,10 @@ export interface ProgressionTotals {
   nextLevelXp: number
   todayXp: number
   streak: number
+  /** The firm's money: in the account now, earned in all, earned today */
+  cash?: number
+  cashEarned?: number
+  todayCash?: number
 }
 
 export interface ProgressionSnapshot extends ProgressionTotals {
@@ -67,6 +72,17 @@ export interface ProgressionSnapshot extends ProgressionTotals {
   shipped: number
   equity: { high: number | null; at?: number; readings: number }
   recent: { at: number; kind: string; xp: number; label: string | null }[]
+  /** The firm's ledger, newest first: money in (amount > 0) and purchases (amount < 0) */
+  ledger?: { at: number; kind: string; amount: number; label: string | null }[]
+  /** The pay rules in force (server/progression.js) */
+  cashRules?: { base?: Record<string, number>; profitShare?: { demo: number; live: number }; breakthrough?: Record<string, number> }
+  /** The books: lifetime income by source, what was spent, and each day's money in, out and closing balance */
+  finances?: {
+    sources: { work: number; breakthrough: number; demo: number; live: number }
+    spent: number
+    since: string | null
+    days: { date: string; in: number; out: number; balance: number }[]
+  }
 }
 
 export interface DayReport {
@@ -95,21 +111,21 @@ export interface QuarterReport {
 }
 
 export type ProgressionEvent =
-  | ({ type: 'progression_update'; gain?: { kind: string; xp: number; label?: string }; timestamp?: number } & Partial<ProgressionTotals>)
+  | ({ type: 'progression_update'; gain?: { kind: string; xp: number; cash?: number; label?: string }; timestamp?: number } & Partial<ProgressionTotals>)
   | { type: 'progression_award'; award: Award; timestamp?: number }
   | { type: 'progression_reset'; timestamp?: number }
   | { type: 'progression_settings'; enabled: boolean; timestamp?: number }
 
-export type PanelTab = 'office' | 'trophies' | 'unlocks' | 'lessons' | 'today' | 'quarter'
+export type PanelTab = 'office' | 'trophies' | 'unlocks' | 'finances' | 'lessons' | 'today' | 'quarter'
 
 export interface ProgressionState {
   snapshot: ProgressionSnapshot | null
   /** Awards waiting to be shown as a toast (oldest first) */
   toasts: Award[]
-  /** An unlock playing its reveal: the dust sheet lifts, stars burst */
+  /** A piece arriving: it settles onto the floor, stars burst */
   reveals: { id: string; at: number }[]
   /** The last XP gain, for the +XP float over the cabinet */
-  lastGain: { kind: string; xp: number; label?: string; at: number } | null
+  lastGain: { kind: string; xp: number; cash?: number; label?: string; at: number } | null
   panel: PanelTab | null
   /** Awards newer than this have not been seen in the panel (the mailbox flag) */
   seenAt: number
@@ -146,13 +162,13 @@ export function applyProgressionEvent(s: ProgressionState, e: ProgressionEvent, 
     case 'progression_update': {
       const snap = s.snapshot
       const totals: Partial<ProgressionTotals> = {}
-      for (const k of ['xp', 'level', 'title', 'levelFloor', 'nextLevelXp', 'todayXp', 'streak'] as const) {
+      for (const k of ['xp', 'level', 'title', 'levelFloor', 'nextLevelXp', 'todayXp', 'streak', 'cash', 'cashEarned', 'todayCash'] as const) {
         if (e[k] !== undefined) (totals as Record<string, unknown>)[k] = e[k]
       }
       return {
         ...s,
         snapshot: snap ? { ...snap, ...totals, counts: e.gain ? { ...snap.counts, [e.gain.kind]: (snap.counts[e.gain.kind] ?? 0) + 1 } : snap.counts } : snap,
-        lastGain: e.gain && e.gain.xp > 0 ? { ...e.gain, at: now } : s.lastGain,
+        lastGain: e.gain && (e.gain.xp > 0 || (e.gain.cash ?? 0) > 0) ? { ...e.gain, at: now } : s.lastGain,
       }
     }
     case 'progression_award': {
@@ -253,6 +269,81 @@ async function postUi(path: string, body: unknown): Promise<boolean> {
   } catch { return false }
 }
 
+/** Buy a piece for the office with the firm's cash. Resolves to null when bought, else why not. */
+export async function buyUnlock(id: string): Promise<string | null> {
+  if (onPhoneFullPage()) return 'Not from this page'
+  const token = getUiToken()
+  if (!token) return 'Open the office from its own link to buy'
+  try {
+    const res = await fetch(`${officeHttpBase()}/progression/buy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ id }),
+      signal: AbortSignal.timeout(5000),
+    })
+    const body = await res.json().catch(() => ({}))
+    await loadProgression(true)
+    return res.ok ? null : String(body?.error ?? 'Could not buy it')
+  } catch { return 'The office server did not answer' }
+}
+
+/** "$1,250" */
+export function money(n: number | undefined | null): string {
+  const v = Math.round(n ?? 0)
+  return `${v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString('en-US')}`
+}
+
+/** The firm's income lines in their fixed order, each with its share of the largest (for the bar). */
+export function incomeRows(sources?: Partial<Record<'work' | 'breakthrough' | 'demo' | 'live', number>>): { id: string; label: string; amount: number; share: number }[] {
+  const rows = [
+    { id: 'work', label: 'Research work' }, { id: 'breakthrough', label: 'Breakthroughs' },
+    { id: 'demo', label: 'Demo profits' }, { id: 'live', label: 'Live profits' },
+  ].map(r => ({ ...r, amount: Math.max(0, Math.round(sources?.[r.id as 'work'] ?? 0)) }))
+  const max = Math.max(1, ...rows.map(r => r.amount))
+  return rows.map(r => ({ ...r, share: r.amount / max }))
+}
+
+/** A short money label for an axis: $950, $1.2k, $15k */
+export function shortMoney(n: number): string {
+  if (n < 1000) return `$${Math.round(n)}`
+  const k = n / 1000
+  return `$${k >= 10 || Number.isInteger(k) ? Math.round(k) : k.toFixed(1)}k`
+}
+
+/**
+ * The cash chart's geometry: one balance per day, from zero to a round top.
+ * @param days the server's days, oldest first
+ * @param w the drawing's width
+ * @param h the drawing's height
+ */
+export function cashChart(days: { balance: number }[], w: number, h: number) {
+  const left = 30, top = 6, bottom = h - 14
+  const peak = Math.max(1, ...days.map(d => d.balance))
+  // A round top at or above the peak: 1, 2, 2.5 or 5 times a power of ten
+  const pow = 10 ** Math.floor(Math.log10(peak))
+  const max = [1, 2, 2.5, 5, 10].map(m => m * pow).find(v => v >= peak) ?? peak
+  const y = (v: number) => bottom - (Math.max(0, v) / max) * (bottom - top)
+  const x = (i: number) => days.length > 1 ? left + (i / (days.length - 1)) * (w - left - 3) : left
+  const points = days.map((d, i) => ({ x: x(i), y: y(d.balance) }))
+  const line = points.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')
+  const area = points.length ? `${line} L${points[points.length - 1].x.toFixed(1)} ${bottom} L${points[0].x.toFixed(1)} ${bottom} Z` : ''
+  const ticks = [0, max / 2, max].map(v => ({ value: v, y: y(v), label: shortMoney(v) }))
+  return { left, top, bottom, max, points, line, area, ticks }
+}
+
+/** The pieces for sale, in shop order by category (rare ones are not for sale). */
+export function shopShelves(unlocks: Unlock[]): { category: string; items: Unlock[] }[] {
+  const out: { category: string; items: Unlock[] }[] = []
+  for (const u of unlocks) {
+    if (u.rare || !u.price) continue
+    const cat = u.category ?? 'Other'
+    let shelf = out.find(s => s.category === cat)
+    if (!shelf) { shelf = { category: cat, items: [] }; out.push(shelf) }
+    shelf.items.push(u)
+  }
+  return out
+}
+
 export async function setProgressionEnabled(on: boolean): Promise<boolean> {
   const before = state.snapshot
   if (before) set({ ...state, snapshot: { ...before, enabled: on } })
@@ -297,6 +388,8 @@ export function useProgression(): ProgressionState {
 
 export const SPRITES = {
   cabinet: '/sprites/progression/trophy-cabinet.png',
+  // Its front frame alone, drawn over the trophies so they stand inside it
+  cabinetFront: '/sprites/progression/trophy-cabinet-front.png',
   mailboxUp: '/sprites/progression/mailbox-up.png',
   mailboxDown: '/sprites/progression/mailbox-down.png',
   bin: '/sprites/progression/shipped-bin.png',
@@ -311,6 +404,12 @@ export const SPRITES = {
   // Upstream's own MIT sprites, and the fork's Trading Floor props
   rack: '/sprites/rooms/server-rack-2.webp',
   moneyTree: '/sprites/decoration/money-tree.png',
+  bear: '/sprites/trading/props/trader-bear.png',
+  mug: '/sprites/trading/props/candle-mug.png',
+  stopSign: '/sprites/trading/props/stop-loss-sign.png',
+  snakePlant: '/sprites/decoration/snake-plant.png',
+  monstera: '/sprites/decoration/monstera-plant.png',
+  airCon: '/sprites/decoration/ac-wall-unit.png',
   equity: '/sprites/trading/props/equity-curve-frame.png',
   bull: '/sprites/trading/props/bull-trophy.png',
   star: '/sprites/effects/star.png',
@@ -331,14 +430,8 @@ export const PLANT_SPRITES = [
   '/sprites/progression/plant-3.png',
 ] as const
 
-export const SHEET_SPRITES = {
-  small: '/sprites/progression/dust-sheet-small.png',
-  medium: '/sprites/progression/dust-sheet-medium.png',
-  tall: '/sprites/progression/dust-sheet-tall.png',
-  long: '/sprites/progression/dust-sheet-long.png',
-} as const
-
-type ArtMeta = { w: number; h: number; shelves?: { x: number; y: number }[][]; slots?: { x: number; y: number }[]; pile?: { x: number; y: number } }
+type Pt = { x: number; y: number }
+type ArtMeta = { w: number; h: number; shelves?: Pt[][]; slots?: Pt[]; pile?: Pt; tag?: Pt; plate?: Pt; top?: Pt; xp?: { from: Pt; to: Pt } }
 const ART = (art as { sprites: Record<string, ArtMeta> }).sprites
 
 /** A sprite's art size (1 art pixel = 1 CSS pixel, the upstream furniture's density). */
@@ -350,6 +443,12 @@ export function artSize(path: string): { w: number; h: number } {
 export const CABINET_SHELVES = ART['trophy-cabinet.png']?.shelves ?? []
 export const PLANTER_SLOTS = ART['planter.png']?.slots ?? []
 export const BIN_PILE = ART['shipped-bin.png']?.pile ?? { x: 50, y: 50 }
+/** Where the bin's stencilled count sits on its front, % of the sprite */
+export const BIN_TAG = ART['shipped-bin.png']?.tag ?? { x: 30, y: 60 }
+/** The cabinet's brass plate, the groove its XP bar runs in, and the middle of its top, % of the sprite */
+export const CABINET_PLATE = ART['trophy-cabinet.png']?.plate ?? { x: 35, y: 80 }
+export const CABINET_XP = ART['trophy-cabinet.png']?.xp ?? { from: { x: 8, y: 13 }, to: { x: 63, y: 31 } }
+export const CABINET_TOP = ART['trophy-cabinet.png']?.top ?? { x: 46, y: 16 }
 
 /**
  * The trophies on the cabinet: each track's best earned tier, best first

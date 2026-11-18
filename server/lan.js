@@ -380,6 +380,9 @@ const ID = '[^/]{1,200}'
  *       the progression cabinet and panel (src/progression.ts): their labels
  *       carry project, repo and file names, and the phone's page never
  *       fetches them (onPhoneFullPage); a phone shows no progression
+ *   POST /progression/buy
+ *       spends the firm's cash on a shop piece (src/progression.ts buyUnlock):
+ *       the page's UI token, loopback only; a phone has no shop
  *   OPTIONS, HEAD on a route, every other method
  *       the page is same-origin, so nothing preflights
  *

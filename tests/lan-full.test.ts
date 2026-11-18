@@ -203,7 +203,7 @@ describe('server/lan.js: LAN_FULL_ROUTES is an allowlist', () => {
     }
     walk(join(__dirname, '..', 'src'))
     // Loopback-only reads, listed in server/lan.js's "Deliberately NOT here" with why: the page skips them on a phone
-    const LOOPBACK_ONLY = ['/progression', '/progression/day', '/progression/quarter', '/ea/equity/pin']
+    const LOOPBACK_ONLY = ['/progression', '/progression/day', '/progression/quarter', '/progression/buy', '/ea/equity/pin']
     for (const path of LOOPBACK_ONLY) {
       expect(paths.has(path), path).toBe(true)
       expect(lanFullRouteAllowed('GET', path), path).toBe(false)

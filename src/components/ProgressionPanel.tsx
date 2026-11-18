@@ -1,7 +1,7 @@
 /**
  * ProgressionPanel - the progression book (server/progression.js) as a
- * popover: Office (level, XP, streak, recent gains), Trophies (tracks and
- * milestones), Unlocks, Lessons (the binder), Today (the daily recap) and
+ * popover: Firm (cash, level, XP, streak, recent gains), Shop (what the cash
+ * buys for the office), Trophies (tracks and milestones), Lessons (the binder), Today (the daily recap) and
  * Quarter (the quarterly review). Opened from the status strip's level
  * button and from the props in the room (src/components/ProgressionLayer.tsx).
  * Read-only data: it shows the same on a read-only page.
@@ -9,16 +9,17 @@
 
 import React, { useEffect, useRef, useState } from 'react'
 import {
-  useProgression, closeProgressionPanel, openProgressionPanel, fetchDay, fetchQuarter, xpProgress, kindRows, formatDuration,
+  useProgression, closeProgressionPanel, openProgressionPanel, fetchDay, fetchQuarter, xpProgress, kindRows, formatDuration, buyUnlock, money, shopShelves,
   quarterOf, previousQuarter, TROPHY_SPRITES, SPRITES, TIERS,
   type DayReport, type QuarterReport, type PanelTab, type ProgressionSnapshot,
   quarterMonths,
 } from '../progression'
+import FinancesTab from './FinancesTab'
 import '../styles/settings.css'
 import '../styles/progression.css'
 
 const TABS: { id: PanelTab; label: string }[] = [
-  { id: 'office', label: 'Office' }, { id: 'trophies', label: 'Trophies' }, { id: 'unlocks', label: 'Unlocks' },
+  { id: 'office', label: 'Firm' }, { id: 'unlocks', label: 'Shop' }, { id: 'finances', label: 'Finances' }, { id: 'trophies', label: 'Trophies' },
   { id: 'lessons', label: 'Lessons' }, { id: 'today', label: 'Today' }, { id: 'quarter', label: 'Quarter' },
 ]
 
@@ -43,6 +44,8 @@ function OfficeTab({ snap }: { snap: ProgressionSnapshot }) {
         </div>
       </div>
       <dl className="pp-grid">
+        <dt>Cash in the account</dt><dd data-testid="prog-cash"><b className="pp-cash">{money(snap.cash)}</b> <span className="pp-dim">today +{money(snap.todayCash)} · earned in all {money(snap.cashEarned)}</span></dd>
+        <dt>Breakthroughs</dt><dd>{snap.counts.breakthrough ?? 0}</dd>
         <dt>Shipped (PRs + deploys)</dt><dd>{snap.shipped}</dd>
         <dt>Rooftop garden</dt><dd>{snap.garden.total} plant{snap.garden.total === 1 ? '' : 's'}</dd>
         <dt>Lessons filed</dt><dd>{snap.counts.lesson ?? 0}</dd>
@@ -54,7 +57,7 @@ function OfficeTab({ snap }: { snap: ProgressionSnapshot }) {
       <ul className="pp-list">
         {snap.recent.slice(0, 8).map((r, i) => <li key={i} className="pp-row"><span className="pp-xp">+{r.xp}</span><span className="pp-what">{r.label ?? r.kind}</span><span className="pp-dim pp-when">{when(r.at)}</span></li>)}
       </ul>
-      <div className="pp-note">XP shrinks the more of one thing you do in a day, repeats within 90 s count nothing, and failures earn none.</div>
+      <div className="pp-note">XP and pay shrink the more of one thing you do in a day, repeats within 90 s count nothing, and failures earn none. A tester result that beats the best for that EA pays a breakthrough bonus; a new equity high pays a share of the real profit.</div>
     </div>
   )
 }
@@ -87,16 +90,49 @@ function TrophiesTab({ snap }: { snap: ProgressionSnapshot }) {
   )
 }
 
+/** The shop: what the firm's cash buys for the office, and the rare pieces that are only ever earned. */
 function UnlocksTab({ snap }: { snap: ProgressionSnapshot }) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const cash = snap.cash ?? 0
+  const buy = async (id: string) => {
+    setBusy(id); setError(null)
+    const why = await buyUnlock(id)
+    setBusy(null); setError(why)
+  }
+  const rares = snap.unlocks.filter(u => u.rare)
   return (
-    <ul className="pp-list pp-unlocks" data-testid="prog-tab-unlocks">
-      {snap.unlocks.map(u => (
-        <li key={u.id} className={`${u.unlocked ? 'earned' : ''}${u.rare ? ' rare' : ''}`}>
-          <img src={u.unlocked ? (u.rare ? SPRITES.gem : SPRITES.star) : SPRITES.padlock} alt="" />
-          <b>{u.title}</b> <span className="pp-dim">{u.unlocked ? `${u.detail} · ${when(u.at)}` : u.hint}</span>
-        </li>
+    <div data-testid="prog-tab-unlocks">
+      <div className="pp-balance"><span>Cash</span><b className="pp-cash" data-testid="shop-cash">{money(cash)}</b></div>
+      {error && <div className="pp-note pp-error" role="alert">{error}</div>}
+      {shopShelves(snap.unlocks).map(shelf => (
+        <div key={shelf.category}>
+          <div className="pp-sub">{shelf.category}</div>
+          <ul className="pp-list pp-shop">
+            {shelf.items.map(u => {
+              const short = (u.price ?? 0) - cash
+              return (
+                <li key={u.id} className={u.unlocked ? 'owned' : ''} data-testid={`shop-item-${u.id}`}>
+                  <span className="pp-shop-what"><b>{u.title}</b> <span className="pp-dim">{u.detail}</span></span>
+                  {u.unlocked
+                    ? <span className="pp-owned" title={when(u.at)}>In the office</span>
+                    : <button type="button" className="pp-buy" disabled={short > 0 || busy !== null} onClick={() => buy(u.id)} title={short > 0 ? `${money(short)} short` : `Buy ${u.title}`} data-testid={`shop-buy-${u.id}`}>{busy === u.id ? '…' : money(u.price)}</button>}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
       ))}
-    </ul>
+      <div className="pp-sub">Rare finds</div>
+      <ul className="pp-list pp-unlocks">
+        {rares.map(u => (
+          <li key={u.id} className={`rare${u.unlocked ? ' earned' : ''}`}>
+            <img src={u.unlocked ? SPRITES.gem : SPRITES.padlock} alt="" />
+            <b>{u.title}</b> <span className="pp-dim">{u.unlocked ? `${u.detail} · ${when(u.at)}` : 'Earned, not bought'}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -190,18 +226,19 @@ const ProgressionPanel: React.FC = () => {
   return (
     <div className="progression-panel office-popover" role="dialog" aria-label="Office progression" ref={ref} data-testid="progression-panel">
       <div className="op-head">
-        <span className="op-title">Progression{snap ? ` · LV ${snap.level} ${snap.title}` : ''}</span>
+        <span className="op-title">The firm{snap ? ` · LV ${snap.level} ${snap.title} · ${money(snap.cash)}` : ''}</span>
         <button className="op-close" onClick={closeProgressionPanel} aria-label="Close">×</button>
       </div>
       <div className="pp-tabs" role="tablist">
         {TABS.map(t => <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => openProgressionPanel(t.id)} data-testid={`prog-tab-btn-${t.id}`}>{t.label}</button>)}
       </div>
-      <div className="pp-body">
+      <div className="pp-body" key={tab}>
         {!snap && <div className="op-note">Loading…</div>}
         {snap && !snap.enabled && <div className="op-note">Progression is off. Turn it on in Settings.</div>}
         {snap && snap.enabled && tab === 'office' && <OfficeTab snap={snap} />}
         {snap && snap.enabled && tab === 'trophies' && <TrophiesTab snap={snap} />}
         {snap && snap.enabled && tab === 'unlocks' && <UnlocksTab snap={snap} />}
+        {snap && snap.enabled && tab === 'finances' && <FinancesTab snap={snap} />}
         {snap && snap.enabled && tab === 'lessons' && <LessonsTab snap={snap} />}
         {snap && snap.enabled && tab === 'today' && <TodayTab />}
         {snap && snap.enabled && tab === 'quarter' && <QuarterTab />}

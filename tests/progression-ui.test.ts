@@ -9,7 +9,7 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import {
   applyProgressionEvent, cabinetTrophies, gardenPlants, parcelsShown, xpProgress, hasNews, isUnlocked, isRevealing, formatDuration,
-  kindRows, quarterOf, previousQuarter, quarterMonths, artSize, SPRITES, TROPHY_SPRITES, PLANT_SPRITES, SHEET_SPRITES, REVEAL_MS,
+  kindRows, quarterOf, previousQuarter, quarterMonths, artSize, SPRITES, TROPHY_SPRITES, PLANT_SPRITES, REVEAL_MS, incomeRows, cashChart, shortMoney,
   CABINET_SHELVES, PLANTER_SLOTS, type ProgressionState, type ProgressionSnapshot, type Track,
 } from '../src/progression'
 
@@ -97,8 +97,26 @@ describe('room helpers', () => {
   })
 })
 
+describe('the finances tab', () => {
+  it('income rows keep their order and scale to the largest', () => {
+    const rows = incomeRows({ work: 800, breakthrough: 400, demo: 0, live: 200 })
+    expect(rows.map(r => r.id)).toEqual(['work', 'breakthrough', 'demo', 'live'])
+    expect(rows.map(r => r.share)).toEqual([1, 0.5, 0, 0.25])
+    expect(incomeRows().every(r => r.amount === 0 && r.share === 0)).toBe(true)
+  })
+  it('the cash chart runs from zero to a round top and ends on the last balance', () => {
+    const c = cashChart([{ balance: 0 }, { balance: 700 }, { balance: 1300 }], 300, 96)
+    expect(c.max).toBe(2000)
+    expect(c.ticks.map(t => t.label)).toEqual(['$0', '$1k', '$2k'])
+    expect(c.points[0].y).toBe(c.bottom)
+    expect(c.points[2].x).toBeCloseTo(297)
+    expect(c.points[2].y).toBeLessThan(c.points[1].y)
+    expect(shortMoney(950)).toBe('$950'); expect(shortMoney(1250)).toBe('$1.3k'); expect(shortMoney(15000)).toBe('$15k')
+  })
+})
+
 describe('the art', () => {
-  const all = [...Object.values(SPRITES), ...Object.values(TROPHY_SPRITES), ...PLANT_SPRITES, ...Object.values(SHEET_SPRITES)]
+  const all = [...Object.values(SPRITES), ...Object.values(TROPHY_SPRITES), ...PLANT_SPRITES]
   it.each(all)('%s is in public/', p => {
     expect(existsSync(join(__dirname, '..', 'public', p))).toBe(true)
   })

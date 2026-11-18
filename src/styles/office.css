@@ -1493,6 +1493,19 @@
   font-size: 7px;
   white-space: nowrap;
 }
+/* Whose session: Codex, Grok (src/providers.ts); Claude Code's pills carry none */
+.session-pill-provider {
+  padding: 0 3px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 7px;
+  line-height: 10px;
+  white-space: nowrap;
+  opacity: 0.9;
+}
+.char-provider {
+  font-weight: 700;
+}
 .session-pill-state.needs-you {
   color: #ffd166;
   font-weight: 700;

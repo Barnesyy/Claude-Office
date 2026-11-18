@@ -183,7 +183,7 @@ const EaScene: React.FC<Props> = ({ agents }) => {
   const cabs = cabinetList(ea.cabinets, CABINET_SPOTS.length)
   const risks = riskByWorker(ea)
   // With progression on, the crash cart is the "backtest bay" unlock: until it
-  // is earned its dust sheet stands there (ProgressionLayer). The rack and its
+  // is bought the spot is empty (ProgressionLayer). The rack and its
   // card always show, so a live run is never hidden behind a lock.
   const prog = useProgression().snapshot
   const cartShown = !prog?.enabled || isUnlocked(prog, 'backtest-bay')

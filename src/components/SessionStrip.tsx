@@ -26,6 +26,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { Agent, SessionInfo } from '../types'
+import { providerInfo } from '../providers'
 import { mainId, isMainAgent, mainTone, mainPillText, shortModel, projectFromCwd, isStaleNeedsYou, needsYouSince, formatAge, comparePills, type PillTone } from '../mainState'
 
 // Main-thread activity counts as "busy" for this long after the last tool call
@@ -100,7 +101,7 @@ const SessionStrip: React.FC<SessionStripProps> = ({ sessions, agents }) => {
   const grouped = groupStart.size > 1
 
   return (
-    <div className="session-strip" aria-label="Claude Code sessions">
+    <div className="session-strip" aria-label="Agent sessions">
       {ordered.map((session, i) => {
         const group = projectGroup(session)
         const heading = grouped && group && (i === 0 || projectGroup(ordered[i - 1]) !== group)
@@ -126,6 +127,7 @@ const SessionStrip: React.FC<SessionStripProps> = ({ sessions, agents }) => {
         const stateText = baseText && handSince ? `${baseText} · ${formatAge(now - handSince)}` : baseText
         const model = shortModel(session.model ?? claude?.model)
         const registryStatus = session.registry?.status
+        const tool = providerInfo(session.id, session.provider)
 
         const label = pillLabel(session)
         // Why: a titled session hides its project label, so it keeps a chip; a label that
@@ -144,8 +146,10 @@ const SessionStrip: React.FC<SessionStripProps> = ({ sessions, agents }) => {
             data-main-state={mainState ?? ''}
             data-stale={stale ? 'true' : undefined}
             data-hooked={unhooked ? 'false' : 'true'}
+            data-provider={tool.id}
           >
             <span className={`session-dot ${tone}`} title={unhooked && registryStatus ? registryStatus : undefined} />
+            {tool.id !== 'claude' && <span className="session-pill-provider" style={{ color: tool.color, borderColor: tool.color }} title={`${tool.app} session`}>{tool.name}</span>}
             {chip && <span className="session-pill-chip" title={`project: ${session.project}`}>{chip}</span>}
             <span className="session-pill-project">{shown}</span>
             {model && <span className="session-pill-model" title={`model: ${session.model ?? claude?.model}`}>{model}</span>}

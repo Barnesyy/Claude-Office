@@ -10,6 +10,7 @@
  *   POST /progression/facts              { facts: [...] } from the transcript watcher (office token)
  *   POST /progression/settings           { enabled } (UI token)
  *   POST /progression/reset              { confirm: "reset" } (UI token): wipes the books
+ *   POST /progression/buy                { id } (UI token): buy a piece for the office with the firm's cash
  *   POST /progression/equity             re-read the configured MT5 reports now (UI token)
  *
  * Every note is wrapped so a progression failure never changes what the
@@ -102,6 +103,14 @@ export function mountProgression(app, { db, requireToken, requireUi, broadcast, 
     if (req.body?.confirm !== 'reset') return res.status(400).json({ error: 'send { "confirm": "reset" } to wipe progression' })
     progression.reset()
     res.json({ ok: true })
+  })
+
+  app.post('/progression/buy', requireUi, (req, res) => {
+    const id = typeof req.body?.id === 'string' ? req.body.id.slice(0, 60) : ''
+    const r = safe('buy', () => progression.buy(id)) ?? { ok: false, error: 'failed' }
+    if (!r.ok) return res.status(r.error === 'not for sale' ? 404 : 409).json(r)
+    console.log(`[progression] bought ${id}`)
+    res.json(r)
   })
 
   app.post('/progression/equity', requireUi, (_req, res) => {

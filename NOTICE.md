@@ -40,6 +40,5 @@ project is not affiliated with, endorsed by or sponsored by them.
 ## Progression sprites
 
 `public/sprites/progression/` is drawn by `scripts/generate-progression-sprites.py`.
-Most of it is new MIT art. The trophies, medal, crown, clover and gem are restyled
-from the Pixor library (https://pixor.art/library/), which is CC0 1.0. See
+All of it is new MIT art drawn by that script; no outside art is used. See
 [docs/progression-credits.md](docs/progression-credits.md) for the full list.

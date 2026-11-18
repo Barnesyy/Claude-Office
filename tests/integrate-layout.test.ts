@@ -89,12 +89,13 @@ describe('one backtest station, one equity display', () => {
     expect(html).toContain('DEMO HIGH 101,235')          // the equity wall is a plate, read from the report
   })
 
-  it('the cart waits under its dust sheet until the backtest bay unlocks; the rack never does', () => {
+  it('the cart is not there until the backtest bay is bought; the rack always is', () => {
     resetProgressionStore({ snapshot: SNAP([]) })
     const locked = renderToStaticMarkup(createElement(EaScene, { agents: [] }))
     expect(locked).toContain(ASSETS['server-rack-1'].path)
     expect(locked).not.toContain(ASSETS['crash-cart'].path)
-    expect(renderToStaticMarkup(createElement(ProgressionLayer))).toContain('prog-locked-backtest-bay')
+    // A bare office: nothing unbought is drawn, not even a placeholder
+    expect(renderToStaticMarkup(createElement(ProgressionLayer))).toBe('')
 
     resetProgressionStore({ snapshot: SNAP(['backtest-bay']) })
     expect(renderToStaticMarkup(createElement(EaScene, { agents: [] }))).toContain(ASSETS['crash-cart'].path)

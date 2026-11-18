@@ -331,6 +331,8 @@ export class TranscriptSession {
     if (!r || typeof r !== 'object') return out
     this.recordAt = Date.parse(r.timestamp) || undefined
     if (r.isSidechain && r.agentId) return this.subagentRecord(r.agentId, r, out)
+    // A provider's row names the model beside the message (Claude's own rows carry it on the reply)
+    if (!this.model && typeof r.model === 'string' && r.model) this.model = r.model
     if (!this.started && (r.type === 'user' || r.type === 'assistant')) {
       if (typeof r.cwd === 'string' && r.cwd) this.cwd = r.cwd
       out.push(this.startPayload('startup'))
@@ -341,6 +343,19 @@ export class TranscriptSession {
     } else if (typeof r.cwd === 'string' && r.cwd && !this.cwd) this.cwd = r.cwd
     this.noteCwd(this.cwd)
     if (typeof r.permissionMode === 'string') this.permissionMode = r.permissionMode
+    // A provider that knows a permission prompt is open (server/provider-sources.js): the hand goes up for
+    // the newest unanswered call of that tool, else the newest unanswered call
+    if (r.type === 'x-permission') {
+      const open = [...this.pending.entries()].filter(([, c]) => !c.raised && c.name !== 'Agent' && c.name !== 'Task').reverse()
+      const hit = open.find(([, c]) => c.name === r.toolName) ?? open[0]
+      if (hit) {
+        const [id, c] = hit
+        c.raised = true
+        out.push(this.base({ hook_event_name: 'PermissionRequest', tool_name: c.name, tool_input: c.input, tool_use_id: id, permission_mode: 'default',
+          ...(c.agentId ? { agent_id: c.agentId, agent_type: c.agentType } : {}) }))
+      }
+      return out
+    }
 
     switch (r.type) {
       case 'summary':
@@ -530,6 +545,8 @@ export class TranscriptSession {
   subagentRecord(agentId, r, out = [], transcriptPath) {
     if (!r || typeof r !== 'object') return out
     this.recordAt = Date.parse(r.timestamp) || undefined
+    // A provider whose worker files say when the worker is done (server/provider-sources.js)
+    if (r.type === 'x-done') { this.subagentDone(agentId, typeof r.text === 'string' ? r.text : '', out); return out }
     let s = this.subagents.get(agentId)
     if (!s || !s.started) {
       // Which Agent call launched it: the one whose prompt is the worker's first message
@@ -778,7 +795,9 @@ export class TranscriptWatcher {
    * @param {boolean} [opts.fromStart] read every existing file from its start (replay / tests)
    * @param {(payload: object) => void} [opts.onPayload] tap: every rebuilt hook payload (progression, debugging)
    */
-  constructor({ config, converter, sink, fromStart = false, log = console, onPayload, now = () => Date.now(), alive = pidAlive }) {
+  constructor({ config, converter, sink, fromStart = false, log = console, onPayload, now = () => Date.now(), alive = pidAlive, provider = null }) {
+    /** Another tool's session files (server/provider-sources.js); null = Claude Code */
+    this.provider = provider
     this.alive = alive
     this.config = config
     this.converter = converter
@@ -820,6 +839,10 @@ export class TranscriptWatcher {
   }
 
   scan() {
+    if (this.provider) {
+      const found = this.provider.scan(this.config, this.now())
+      return this.config.onlyListed ? found.filter(f => !f.cwd || this.wanted(f.enc, f.cwd)) : found
+    }
     const root = this.config.dir
     let dirs = []
     try { dirs = readdirSync(root, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name) } catch { return [] }
@@ -857,6 +880,7 @@ export class TranscriptWatcher {
 
   readRegistry() {
     this.registry.clear()
+    if (!this.config.registryDir) return
     let names = []
     try { names = readdirSync(this.config.registryDir).filter(n => n.endsWith('.json')) } catch { return }
     for (const n of names) {
@@ -874,6 +898,8 @@ export class TranscriptWatcher {
 
   settingsFor(cwd) {
     const key = cwd || ''
+    // Another tool's permission rules are not Claude Code's: nothing is guessed from them
+    if (this.provider) return { allow: [], defaultMode: 'auto' }
     const hit = this.settingsCache.get(key)
     if (hit && this.now() - hit.at < 30_000) return hit.value
     const value = readPermissionSettings(this.config.claudeDir, cwd)
@@ -909,9 +935,10 @@ export class TranscriptWatcher {
         if (entry.catchUp && st.size - entry.offset > CATCH_UP_MAX_BYTES) entry.offset = st.size - CATCH_UP_MAX_BYTES
         const { text, end } = readFrom(f.path, entry.offset, entry.catchUp ? CATCH_UP_MAX_BYTES : undefined)
         entry.offset = end
-        const { records, rest } = splitLines(entry.rest, text)
-        entry.rest = rest
+        const split = splitLines(entry.rest, text)
+        entry.rest = split.rest
         entry.lastGrowth = now
+        const records = this.adapt(entry, split.records)
         if (records.length) batches.push({ entry, records })
       } else if (st.size < entry.offset) { entry.offset = 0; entry.rest = '' }
     }
@@ -941,7 +968,24 @@ export class TranscriptWatcher {
     this.quiet(now)
   }
 
+  /** A provider's records in Claude Code's shape (its adapter keeps state per file); Claude's own pass through. */
+  adapt(entry, records, { fresh = false } = {}) {
+    if (!this.provider) return records
+    const adapter = fresh ? this.provider.createAdapter(entry) : (entry.adapter ??= this.provider.createAdapter(entry))
+    try { return adapter.adapt(records) } catch (err) { this.log.warn?.(`[transcripts] ${this.provider.id} adapt: ${err.message}`); return [] }
+  }
+
   sessionFor(entry) {
+    if (this.provider) {
+      const known = this.sessions.has(entry.sessionId)
+      const s = this.session(entry.sessionId, entry.enc, entry.kind === 'main' ? entry.path : (entry.mainPath ?? entry.path))
+      if (entry.kind === 'main' && s.transcriptPath !== entry.path) s.transcriptPath = entry.path
+      if (!known && !this.provider.guessPermissions) s.permissionMode = 'auto'
+      if (!s.cwd && entry.cwd && (entry.kind === 'main' || !known)) { s.cwd = entry.cwd; s.noteCwd(entry.cwd) }
+      // A worker's role and name come from its own file's header
+      if (entry.kind === 'agent' && !s.subagents.has(entry.agentId)) s.subagents.set(entry.agentId, { agentType: entry.agentType ?? 'worker', description: entry.description, started: false, done: false })
+      return s
+    }
     return this.session(entry.sessionId, entry.enc, entry.kind === 'main' ? entry.path : join(dirname(dirname(dirname(entry.path))), `${entry.sessionId}.jsonl`))
   }
 
@@ -955,6 +999,8 @@ export class TranscriptWatcher {
    */
   catchUp(entry, records, now) {
     const s = this.sessionFor(entry)
+    // A provider's side file (timings beside the session's own file) has no history worth replaying
+    if (entry.aux) { entry.wasOld = true; entry.learnTo = 0; return [] }
     if (!s.cwd) { const c = records.find(r => typeof r?.cwd === 'string' && r.cwd); if (c) { s.cwd = c.cwd; s.noteCwd(c.cwd) } }
     let lastT = -Infinity
     for (const r of records) { const t = Date.parse(r?.timestamp); if (Number.isFinite(t) && t > lastT) lastT = t }
@@ -991,6 +1037,11 @@ export class TranscriptWatcher {
     if (!s.cwd) { const c = records.find(r => typeof r?.cwd === 'string' && r.cwd); if (c) { s.cwd = c.cwd; s.noteCwd(c.cwd) } }
     if (!this.wanted(entry.enc, s.homeCwd || s.cwd)) return
     const out = []
+    // A side file only speaks about a session that is on (it never starts or resumes one)
+    if (entry.aux) {
+      if (s.started && !s.ended) { s.mainRecords(records, out); this.emit(s, out) }
+      return
+    }
     if (entry.kind === 'main') {
       {
         if (entry.learnTo > 0) {
@@ -998,7 +1049,7 @@ export class TranscriptWatcher {
           // what it wrote before the watcher looked (silently; its tail only)
           const from = Math.max(0, entry.learnTo - CATCH_UP_MAX_BYTES)
           const { text } = readFrom(entry.path, from, entry.learnTo - from)
-          const head = splitLines('', text).records
+          const head = this.adapt(entry, splitLines('', text).records, { fresh: true })
           if (!s.cwd) { const c = head.find(r => typeof r?.cwd === 'string' && r.cwd); if (c) { s.cwd = c.cwd; s.noteCwd(c.cwd) } }
           s.mainRecords(head, [])
           s.pending.clear(); s.batches.clear(); s.turnOpen = false; s.started = false
@@ -1043,7 +1094,9 @@ export class TranscriptWatcher {
         out.push(s.startPayload('resume'))
       }
       out.push(...s.quietCheck(now, quietMs, {
-        graceMs: this.config.permissionGraceMs, bashGraceMs: this.config.bashPermissionGraceMs, turnIdleMs: this.config.turnIdleMs,
+        graceMs: this.config.permissionGraceMs, bashGraceMs: this.config.bashPermissionGraceMs,
+        // A provider that writes its turn ends down never has one guessed from a quiet reply
+        turnIdleMs: this.provider ? (this.provider.explicitTurnEnd ? 0 : (this.provider.turnIdleMs ?? this.config.turnIdleMs)) : this.config.turnIdleMs,
         allow, defaultMode, registryWaiting: status === undefined ? undefined : status === 'waiting', registryIdle: status === 'idle',
       }))
       if (quietMs >= this.config.idleEndMs && this.config.idleEndMs > 0 && s.pending.size === 0 && status === undefined) {
@@ -1070,6 +1123,8 @@ export class TranscriptWatcher {
           if (p.prompt_from_other && e.type === 'session_prompt') e.isWakeup = true
           delete e.answerable; delete e.nonce; delete e.claim
           e.via = 'transcript'
+          // Whose session it is (Claude's own events carry none)
+          if (this.provider) e.provider = this.provider.id
           // History read at start-up: the office shows it, progression does not count it
           if (replayed) e.replayed = true
         }

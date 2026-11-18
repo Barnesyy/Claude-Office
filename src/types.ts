@@ -205,6 +205,8 @@ export interface SessionInfo {
   cwd?: string
   title?: string
   model?: string
+  /** Whose session it is when not Claude Code's: 'codex' | 'grok' (src/providers.ts) */
+  provider?: string
   source?: string           // startup | resume | compact | clear | fork | implicit
   state: 'active' | 'ended'
   reason?: string           // why it ended

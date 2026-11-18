@@ -32,7 +32,7 @@ const MAX_PAYLOADS = 50
  * @param {NodeJS.ProcessEnv} [o.env]
  * @param {number} [o.tickMs]
  */
-export function mountEaScenes({ app, requireToken, requireUi = requireToken, isTrusted = () => false, broadcast, resolve, officeConfig = {}, env = process.env, tickMs = 2000, stateDir = null }) {
+export function mountEaScenes({ app, requireToken, requireUi = requireToken, isTrusted = () => false, broadcast, resolve, officeConfig = {}, env = process.env, tickMs = 2000, stateDir = null, onResult = () => {} }) {
   const config = resolveEaConfig(officeConfig, env)
   const pinFile = stateDir ? join(stateDir, 'ea-equity.json') : null
   let pin = null
@@ -48,7 +48,7 @@ export function mountEaScenes({ app, requireToken, requireUi = requireToken, isT
   let lastIds = ''
   const idsOf = state => JSON.stringify([state.station.officeId, ...state.screens.map(s => s.officeId), ...state.risk.map(r => r.officeId)])
   const send = () => { const state = snapshot(true); lastIds = idsOf(state); broadcast({ type: 'ea_state', ea: state }) }
-  const scenes = new EaScenes({ config, onChange: send, pin, onPin: savePin })
+  const scenes = new EaScenes({ config, onChange: send, pin, onPin: savePin, onResult })
 
   app.post('/ea/payload', requireToken, (req, res) => {
     const body = req.body

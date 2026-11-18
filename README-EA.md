@@ -87,6 +87,64 @@ The transcript watcher removes anything that would let the office answer a dialo
 - Environment variables override the config: `AGENT_OFFICE_TRANSCRIPTS_DIR`, `CLAUDE_CONFIG_DIR`, `AGENT_OFFICE_REGISTRY_DIR`, `AGENT_OFFICE_PYTHON`, `AGENT_OFFICE_PORT`, `AGENT_OFFICE_HOME`.
 - At start-up, a session active in the last `activeWindowMinutes` has its current turn rebuilt. Older ones join when they next write. A session silent for `idleEndMinutes`, and absent from the registry, ends.
 
+## Other agents: Codex and Grok
+
+The office is not only Claude's. The same watcher reads two more tools' session files and seats their
+threads in the same room (`server/provider-sources.js`). Nothing is installed into either tool and nothing in
+their folders is written.
+
+| Tool | Reads | Status |
+| --- | --- | --- |
+| **Codex** (desktop app, IDE extension, CLI) | `%USERPROFILE%\.codex\sessions\YYYY\MM\DD\rollout-*.jsonl` | Built from Codex's published format (openai/codex). Covers threads, prompts, tool calls, worker threads, turn ends and interrupts. |
+| **Grok** (CLI) | `%USERPROFILE%\.grok\sessions\<folder>\<session id>\updates.jsonl`, with `events.jsonl` and `summary.json` beside it | Built from real Grok 4.7 sessions. Covers sessions, titles, prompts, tool calls, failed calls, turn ends, cancels and open permission prompts. |
+
+How it works:
+
+- Each tool's records are turned into Claude Code's transcript shape, then go down the unchanged pipeline.
+  So a Codex shell call that runs `terminal64.exe /config:…` lights the backtest station, a Codex edit of an
+  `.mq5` shows MetaEditor on the desk, and its turns, workers, commits and MT5 runs earn progression by the same rules.
+- Session ids carry the tool as a prefix (`codex-…`, `grok-…`), and the server keeps `provider` on the session.
+- In the room, a Codex or Grok thread is Claude's sprite with a tint (green for Codex, grey for Grok) and its
+  name on the tag under it. Its pill in the strip has a `Codex` or `Grok` chip, and its chat lines are signed with its name.
+
+What is different from Claude:
+
+- **Needs you:** Grok writes down when a permission prompt opens and when it is answered (`events.jsonl`), so its hand
+  goes up for a real prompt only. Codex does not write its approval dialogs down, and a slow call is never guessed
+  to be one (the guess was wrong 117 times in 6 hours on Claude, see above), so a Codex thread never shows needs-you.
+- **Turn end:** both write it down (Codex `turn_complete`, Grok `turn_completed`), so none is guessed.
+- **Meters** (cost, tokens, context) and the inspector's transcript tail are Claude only for now.
+- By default every Codex and Grok thread shows, whatever folder it runs in (a Codex thread may run in a worktree
+  outside the listed projects). A thread inside a listed project still gets its label (`EA Dev · School Run`).
+
+Config (`office.config.json`, all optional):
+
+```json
+{
+  "providers": {
+    "codex": { "enabled": true, "dir": null, "onlyListed": false, "scanDays": 30 },
+    "grok": { "enabled": true, "dir": null, "onlyListed": false, "scanDays": 30 }
+  }
+}
+```
+
+- `enabled: false` turns a tool off. `dir` names another sessions folder. `onlyListed: true` hides threads outside the listed projects.
+- `scanDays`: only session files from the last 30 days are looked at.
+- Environment: `CODEX_HOME`, `GROK_HOME`, `AGENT_OFFICE_CODEX_DIR`, `AGENT_OFFICE_GROK_DIR`.
+- Watcher flags: `--no-providers`, `--codex-dir <path>`, `--grok-dir <path>`. A scratch run (`--dir` or
+  `AGENT_OFFICE_TRANSCRIPTS_DIR`) watches another tool only when its folder is named too.
+
+Demo (fixture sessions, not real ones):
+
+```bash
+AGENT_OFFICE_HOME=/tmp/ao AGENT_OFFICE_PORT=3434 node server/index.js
+AGENT_OFFICE_HOME=/tmp/ao AGENT_OFFICE_PORT=3434 node scripts/transcript-watch.mjs --once --from-start --dir /nonexistent \
+  --codex-dir tests/fixtures/providers/codex/sessions --grok-dir tests/fixtures/providers/grok/sessions
+```
+
+Adding another tool is one entry in `PROVIDERS`: a `scan` that finds its session files and an adapter that
+turns its records into `user` / `assistant` rows. Tests: `tests/provider-sources.test.ts`.
+
 ## Chat AI (optional, off)
 
 The chat panel's AI replies (`scripts/chat-ai-watcher.sh`, one `claude -p` per message) are off by default.
@@ -140,7 +198,7 @@ npx vite build
 - The fork's own tests are `tests/transcript-source.test.ts` (fixtures, labels, permission inference, the Python bridge) and `tests/transcript-e2e.test.ts` (watcher → `/event` → WebSocket, event taps, registry focus).
 - A full run deletes `build/icon.png` (an upstream test quirk). Restore it with `git checkout build/icon.png`.
 
-## Progression (XP, trophies, unlocks)
+## Progression (cash, XP, trophies, shop)
 
 The office levels up from real work only. Each source:
 
@@ -169,26 +227,68 @@ Anti-farming:
 - Replays are deduped by id.
 - Failures earn 0 XP.
 
-The rules live in `server/progression.js` (`XP_BASE`, `TRACKS`, `MILESTONES`, `UNLOCKS`). The store is SQLite tables
+The rules live in `server/progression.js` (`XP_BASE`, `CASH_BASE`, `TRACKS`, `MILESTONES`, `UNLOCKS`). The store is SQLite tables
 `progression_*` in `chat.db`. Broadcasts are `progression_update`, `progression_award`, `progression_reset` and
 `progression_settings`.
 
-In the room:
+### The firm: cash and the shop
 
-- trophy cabinet with an XP bar and level plate
-- mailbox (flag up while there are unseen awards)
-- lessons binder
-- Shipped bin (a parcel per merged PR or deploy)
-- window-box garden (a plant per merged PR)
-- backtest bay: the EA backtest station's crash cart, with an `MT5 runs · WF` plate (see EA scenes)
-- equity wall: a `DEMO HIGH` plate under the wall dashboard, from your MT5 account report
-- money tree (level 5)
+The office is a trading firm. It earns cash, and the cash buys what stands in the room.
+Nothing is in the room until it is bought: no dust sheets, no padlocks, just a bare office.
 
-Locked furniture stands under a dust sheet with a padlock. On unlock, the sheet lifts with a star burst.
-The four rare unlocks show as `???` until earned.
+Cash comes in from three places (`CASH_BASE`, `BREAKTHROUGH`, `PROFIT_SHARE` in `server/progression.js`):
 
-The level button in the status strip opens the panel. Its tabs are Office, Trophies, Unlocks, Lessons, Today
-and Quarter.
+- **Work.** Every fact that earns XP also pays, with the same anti-farming rules. Per first one of the day:
+  turn $5, worker $10, tests pass $10, build $5, EA compile $15, commit $20, push $20, lesson $80,
+  MT5 run $60, tester report $30, deploy $100, PR merge $150, walk-forward $250.
+- **Breakthroughs.** When a finished tester report beats the best one so far for the same expert, symbol and
+  period, the firm gets a $400 bonus. The score is net profit over max drawdown. It needs at least 30 trades
+  and a 2% improvement, the first report only sets the baseline, and at most 3 are paid a day.
+- **Account profits.** Each new equity high on a watched MT5 account pays a share of the gain: 10% on a demo
+  account, 50% on a live one. The first reading is only the baseline, and a drawdown costs nothing.
+  An account counts as live when its login is listed in `progression.liveAccounts`:
+
+  ```json
+  { "progression": { "liveAccounts": ["12345678"] } }
+  ```
+
+The shop is the Shop tab of the panel (the level button in the status strip). Buying needs the office's own
+link (`npm run open`); a plain `127.0.0.1` tab and a phone are read-only.
+
+| Piece | Price | What it does |
+| --- | --- | --- |
+| Trophy cabinet | $250 | trophies, XP bar and level plate |
+| Mailbox | $400 | flag up while there are unseen awards |
+| Lessons binder | $600 | every fail-then-fix, filed |
+| Shipped bin | $900 | a parcel per merged PR or deploy |
+| Backtest bay | $1,500 | crash cart at the rack with an `MT5 runs · WF` plate (see EA scenes) |
+| Equity plate | $2,000 | `DEMO HIGH` plate under the wall dashboard |
+| Window garden | $2,500 | a plant per merged PR |
+| Money tree | $5,000 | it looks like it might grow money |
+| Candle mug | $200 | a candlestick mug on the lounge table |
+| Trader bear | $350 | sits on the filing cabinet |
+| Stop-loss sign | $500 | stands by the backtest rack |
+| Office plants | $800 | two more plants on the floor |
+| Air conditioning | $1,800 | a wall unit over the water cooler |
+| Lunch room | $3,000 | more office space: breaks and long idles happen there |
+| Meeting room | $4,500 | more office space: a session and its workers gather there |
+| Server room | $6,000 | more office space: MCP server workers stand at the racks |
+
+The firm starts with the main office only. A side room does not exist until it is bought: nobody is sent
+there and the floor plan does not list it. The corridor comes with the first room. The server tells every
+page which rooms exist (`rooms` in the snapshot, `office_rooms` after a purchase). With progression switched
+off, every room is open as before.
+
+The Finances tab is the firm's books: cash in hand, earned and spent, the balance day by day for the
+last 30 days, and income split into research work, breakthroughs, demo profits and live profits. The daily
+totals are kept for good in `progression_cashflow` (the ledger itself keeps the last 300 lines).
+
+The four rare finds are earned, not bought, and show as `???` until then.
+The Shop tab also lists the last money in and out (table `progression_ledger`).
+Anything unlocked under the old level rules stays in the room; a reset in Settings empties it.
+
+The level button in the status strip shows the balance and opens the panel. Its tabs are Firm, Shop, Finances,
+Trophies, Lessons, Today and Quarter.
 
 Settings → Progression turns it on or off and resets it (UI token).
 Progression is loopback only: a LAN phone shows none of it.
@@ -196,7 +296,7 @@ Progression is loopback only: a LAN phone shows none of it.
 ## One room: how progression and the EA scenes share it
 
 - **One backtest station.** The EA station (rack + crash cart, left wall) is the only one. The rack and its card always show, so a live run is never hidden.
-  With progression on, the cart is the "Backtest bay" unlock: it stands under a dust sheet until your first MT5 tester run, then gets its run-count plate.
+  With progression on, the cart is the "Backtest bay" shop piece: the spot is empty until you buy it, then it carries its run-count plate.
 - **One equity display.** The whiteboard's EQ mode (the latest tester report's balance curve). The "Equity wall" unlock adds only a brass `DEMO HIGH` plate under the wall dashboard, from a real demo account report.
 - **Moved to make room:** Shipped bin and money tree to the front right, the window-box garden along the window past the tick cabinets.
   `tests/integrate-layout.test.ts` checks nothing piles up.
@@ -262,7 +362,7 @@ Progression:
   - Strategy Tester reports are never read as equity.
 - Watcher: `node scripts/transcript-watch.mjs --no-progression` sends no facts.
 - Replay demo: `node scripts/transcript-watch.mjs --dir tests/fixtures/progression-transcripts --once --from-start --all-projects`.
-- Sprites: `python3 scripts/generate-progression-sprites.py`. Credits are in `docs/progression-credits.md`.
+- Sprites: `python3 scripts/generate-progression-sprites.py` draws them all (PIL and numpy, no outside art). Credits are in `docs/progression-credits.md`.
 
 EA scenes:
 

@@ -1224,7 +1224,15 @@ function sessionEvent(session, type = 'session_started') {
   return { type, sessionId: id, ...json, timestamp: Date.now() }
 }
 
-function createSession({ id, project, cwd, source, model, title, transcriptPath, now = Date.now() }) {
+/** Which tool a session belongs to: an event's `provider`, else the id's prefix (server/provider-sources.js); Claude Code has none. */
+const SESSION_PROVIDERS = new Set(['codex', 'grok'])
+function providerOf(id, provider) {
+  if (SESSION_PROVIDERS.has(provider)) return provider
+  const prefix = /^([a-z]+)-/.exec(String(id ?? ''))?.[1]
+  return SESSION_PROVIDERS.has(prefix) ? prefix : undefined
+}
+
+function createSession({ id, project, cwd, source, model, title, transcriptPath, provider, now = Date.now() }) {
   const session = {
     id,
     hooked: true,
@@ -1239,6 +1247,8 @@ function createSession({ id, project, cwd, source, model, title, transcriptPath,
   }
   if (model) session.model = model
   if (title) session.title = title
+  const tool = providerOf(id, provider)
+  if (tool) session.provider = tool
   // The session's own transcript; a worker's file is derived from it (server/transcript.js)
   if (transcriptPath) session.transcriptPath = transcriptPath
   sessions.set(id, session)
@@ -1275,7 +1285,7 @@ function touchSession(body, now = Date.now()) {
   if (!id) return null
   let session = sessions.get(id)
   if (!session) {
-    session = createSession({ id, project: body.project, cwd: body.cwd, source: 'implicit', transcriptPath: body.transcriptPath, now })
+    session = createSession({ id, project: body.project, cwd: body.cwd, source: 'implicit', transcriptPath: body.transcriptPath, provider: body.provider, now })
     saveAgents()
     broadcast(sessionEvent(session))
     return session
@@ -2230,6 +2240,8 @@ app.post('/event', requireToken, (req, res) => {
     transcriptPath: clampString(body.transcriptPath, 400),
     source:  clampString(body.source),
     model:   clampString(body.model),
+    // Whose session it is when it is not Claude Code's (the watcher's other tools)
+    provider: SESSION_PROVIDERS.has(body.provider) ? body.provider : undefined,
     title:   clampString(body.title),
     reason:  clampString(body.reason),
     // The session's own Claude: prompt / reply text gets the chat-line clamp,
@@ -3611,7 +3623,7 @@ function applyEvent(body) {
       const source = body.source || 'startup'
       let session = sessions.get(id)
       if (!session) {
-        session = createSession({ id, project: body.project, cwd: body.cwd, source, model: body.model, title: body.title, transcriptPath: body.transcriptPath, now })
+        session = createSession({ id, project: body.project, cwd: body.cwd, source, model: body.model, title: body.title, transcriptPath: body.transcriptPath, provider: body.provider, now })
       } else {
         if (session.state === 'ended') {
           clearSessionTimer(id)
@@ -4017,6 +4029,8 @@ const ea = mountEaScenes({
   requireToken,
   requireUi,
   stateDir: RUNTIME_DIR,
+  // A finished tester run's numbers, for the firm's books (a breakthrough pays)
+  onResult: r => { try { progression.noteResult(r) } catch (err) { console.warn(`[progression] result: ${err?.message ?? err}`) } },
   isTrusted: req => tokenMatches(bearerToken(req)),
   broadcast: payload => broadcast(payload),
   resolve: (sessionId, agentId) => (agentId ? lookupAgentId(agentId) : sessionId ? mainActivityId(sessionId) : null),
@@ -4248,6 +4262,8 @@ function buildSnapshot(trusted) {
   const pending = permissions.pending()
   return {
     type: 'snapshot',
+    // The side rooms the firm has bought (null: progression is off, every room is open)
+    rooms: progression.rooms(),
     activeAgents: liveAgents(),
     sessions: Array.from(sessions.values()).map(s => sessionToJSON(s, { withText: trusted })),
     statuses: status.summary(),
@@ -4303,7 +4319,7 @@ const LAN_NEEDS_YOU_FIELDS = ['kind', 'toolName', 'notificationType', 'promptId'
 // transcriptPath, lastStatus.
 const LAN_SESSION_FIELDS = [
   'id', 'sessionId', 'hooked', 'source', 'state', 'startedAt', 'lastActivityAt', 'endedAt', 'reason',
-  'model', 'fromModel', 'switchSource', 'agentCount', 'workingCount', 'agentIds',
+  'model', 'fromModel', 'switchSource', 'agentCount', 'workingCount', 'agentIds', 'provider',
 ]
 // Claude Code's registry entry. Not name / nameSource (a session name the user typed).
 const LAN_REGISTRY_FIELDS = ['pid', 'status', 'kind', 'version', 'startedAt', 'statusUpdatedAt']
@@ -4371,6 +4387,7 @@ const sessionEventRule = p => ({ ...pick(p, ['type', 'timestamp']), ...lanSessio
 const LAN_EVENT_RULES = {
   snapshot: s => ({
     type: 'snapshot',
+    rooms: Array.isArray(s.rooms) ? s.rooms.filter(r => typeof r === 'string') : null,
     activeAgents: (s.activeAgents ?? []).map(lanAgent),
     sessions: (s.sessions ?? []).map(lanSession),
     health: pick(s.health, LAN_HEALTH_FIELDS),
@@ -4382,6 +4399,7 @@ const LAN_EVENT_RULES = {
   }),
   agent_spawned: eventFields(['sessionId', 'recovered'], p => ({ agent: lanAgent(p.agent) })),
   office_interaction: eventFields(['item', 'by']),
+  office_rooms: p => ({ type: 'office_rooms', rooms: Array.isArray(p.rooms) ? p.rooms.filter(r => typeof r === 'string') : null, timestamp: p.timestamp }),
   agent_working: eventFields(['agentId', 'sessionId', 'failed']),
   agent_completed: eventFields(['agentId', 'sessionId', 'tokens', 'durationMs', 'toolUses', 'model']),
   mcp_call: eventFields(['server', 'tool', 'agentId', 'sessionId']),
